@@ -201,9 +201,9 @@ function tryLogin(){
     unlocked=true;
     document.getElementById('lockscreen').style.display='none';
     document.getElementById('app').style.display='block';
-    render();                     // dashboard nu opbouwen (demo tot live binnen is)
+    render();                     // dashboard nu opbouwen
     setTimeout(init3D,80);        // 3D starten
-    loadLive(curPeriod).then(ok=>{ if(ok) render(true); }); // echte cijfers ophalen
+    fetchStats();                 // echte cijfers ophalen
   }else{
     document.getElementById('lockErr').textContent='Onjuist wachtwoord';
     document.getElementById('pw').value='';
@@ -233,57 +233,55 @@ const base = {
 
 let curStore='all', curPeriod='Vandaag';
 
-// ---- LIVE DATA (Shopify) ----
-// live[periodeLabel][storeId] = {revenue,refunds,cogs,orders,netRev}
-const live = {};
-const periodCode = {
-  'Vandaag':'today','Gisteren':'yesterday','Deze week':'week',
-  'Deze maand':'month','30 dagen':'30d','Custom':'custom'
-};
-async function loadLive(per){
-  try{
-    let url='/api/shopify?period='+periodCode[per];
-    if(per==='Custom' && customFrom && customTo){
-      url+='&from='+customFrom+'&to='+customTo;
-    }
-    const r=await fetch(url);
-    if(!r.ok) return false;
-    const d=await r.json();
-    // alleen gebruiken als er echt omzet in zit (anders demo laten staan)
-    live[per]={all:d.all, fr:d.fr, uk:d.uk};
-    return true;
-  }catch(e){ return false; }
-}
-
 const eur = n => '€'+n.toLocaleString('nl-NL',{maximumFractionDigits:0});
 const eur2= n => '€'+n.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 
+// ---- Live data (van de server) met voorbeelddata als terugval ----
+let liveData = null;      // {fr,uk,all} zodra opgehaald
+let liveKey = '';         // welke periode is geladen
+
+async function fetchStats(){
+  const per=curPeriod;
+  let url='/api/stats?period='+encodeURIComponent(per);
+  if(per==='Custom' && customFrom && customTo){
+    url+='&from='+customFrom+'&to='+customTo;
+  }
+  try{
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('server '+r.status);
+    const j=await r.json();
+    if(j && j.all){ liveData=j; liveKey=per; render(); }
+  }catch(e){
+    // geen server / nog niet gekoppeld -> voorbeelddata blijft staan
+    console.log('live data nog niet beschikbaar:',e.message);
+  }
+}
+
 function calc(sid,per){
+  // echte data indien beschikbaar voor deze periode
+  if(liveData && liveKey===per && liveData[sid]){
+    const m=liveData[sid];
+    return {rev:m.rev,spend:m.spend,cogs:m.cogs,orders:m.orders,
+            profit:m.profit,roas:m.roas,aov:m.aov,margin:m.margin,
+            refunds:m.refunds,netRev:m.netRev,chg:base[sid]?base[sid].chg:0};
+  }
+  // anders: voorbeelddata
   const b=base[sid];
   let f=pFactor[per];
   if(per==='Custom' && customFrom && customTo){
     const days=Math.max(1,Math.round((new Date(customTo)-new Date(customFrom))/864e5)+1);
     f=days;
   }
-
-  // echte Shopify-cijfers als die er zijn voor deze periode+store
-  const L = live[per] && live[per][sid];
-  const hasLive = L && !L.error && typeof L.revenue==='number';
-
-  const rev     = hasLive ? L.revenue : Math.round(b.rev*f);
-  const refunds = hasLive ? L.refunds : Math.round(rev*(b.refundRate||0.04));
-  const cogs    = hasLive ? L.cogs    : Math.round(rev*0.29);
-  const orders  = hasLive ? L.orders  : Math.round(b.orders*f);
-
-  // ad spend & ROAS komen (nog) niet uit Shopify -> demo tot Google Ads gekoppeld is
-  const spend   = Math.round(b.spend*f);
-
-  const netRev  = rev-refunds;                            // omzet na refunds
-  const profit  = netRev-spend-cogs;                     // winst incl. refunds eraf
-  const roas    = +(rev/spend).toFixed(2);
-  const aov     = orders ? +(rev/orders).toFixed(1) : 0;
-  const margin  = netRev ? +((profit/netRev)*100).toFixed(1) : 0;
-  return {rev,spend,cogs,orders,profit,roas,aov,margin,refunds,netRev,chg:b.chg,hasLive};
+  const rev=Math.round(b.rev*f), spend=Math.round(b.spend*f);
+  const refunds=Math.round(rev*(b.refundRate||0.04));   // refunds per store
+  const cogs=Math.round(rev*0.29);                        // COGS = 29% van omzet
+  const orders=Math.round(b.orders*f);
+  const netRev=rev-refunds;                               // omzet na refunds
+  const profit=netRev-spend-cogs;                         // winst incl. refunds eraf
+  const roas=+(rev/spend).toFixed(2);
+  const aov=+(rev/orders).toFixed(1);
+  const margin=+((profit/netRev)*100).toFixed(1);         // % over omzet na refunds
+  return {rev,spend,cogs,orders,profit,roas,aov,margin,refunds,netRev,chg:b.chg};
 }
 
 function buildTabs(){
@@ -293,11 +291,7 @@ function buildTabs(){
     `<div class="store ${s.id===curStore?'active':''}" onclick="setStore('${s.id}')">
        <span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join('');
 }
-function setPeriod(p){
-  curPeriod=p;
-  render();                          // meteen tonen (demo of gecachte live)
-  if(!live[p]) loadLive(p).then(ok=>{ if(ok) render(true); });
-}
+function setPeriod(p){curPeriod=p;render();fetchStats();}
 function setStore(s){curStore=s;render();}
 function onDate(){
   customFrom=document.getElementById('dFrom').value;
@@ -307,9 +301,8 @@ function onDate(){
     document.getElementById('dFrom').value=customFrom;
     document.getElementById('dTo').value=customTo;
   }
-  delete live['Custom'];              // opnieuw ophalen voor nieuw bereik
   render();
-  loadLive('Custom').then(ok=>{ if(ok) render(true); });
+  fetchStats();
 }
 
 function render(anim){
@@ -328,11 +321,11 @@ function render(anim){
   const d=calc(curStore,curPeriod);
   const st=stores.find(s=>s.id===curStore);
   document.getElementById('storeTitle').textContent=st.name;
-  const tag = d.hasLive ? ' · live' : ' · demo-data';
-  let lbl = curPeriod+tag;
+  const isLive = liveData && liveKey===curPeriod;
+  let lbl = curPeriod + (isLive ? '' : ' · demo-data');
   if(curPeriod==='Custom' && customFrom && customTo){
     const fmt=s=>{const [y,m,dd]=s.split('-');return dd+'/'+m;};
-    lbl='Custom · '+fmt(customFrom)+' – '+fmt(customTo)+tag;
+    lbl='Custom · '+fmt(customFrom)+' – '+fmt(customTo);
   }
   document.getElementById('dateLbl').textContent=lbl;
 
