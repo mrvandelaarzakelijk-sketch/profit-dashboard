@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#050709">
+<title>Profit</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#050709; --surface:#0c1017; --surface-2:#141a24; --line:#161c26;
+    --txt:#e8edf4; --muted:#7d8aa0; --dim:#525d70;
+    --green:#00ff88; --red:#ff5c5c; --accent:#00e5c7; --amber:#ff9500;
+    --font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    background:var(--bg);color:var(--txt);font-family:var(--font);
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  }
+  .wrap{padding:14px 16px 90px;max-width:640px;margin:0 auto;}
+
+  /* Header */
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .top h1{font-size:22px;font-weight:700;letter-spacing:-.5px;}
+  .top .date{font-size:12px;color:var(--dim);margin-top:2px;}
+  .refresh{width:40px;height:40px;border-radius:12px;background:var(--surface);
+    border:1px solid var(--line);display:grid;place-items:center;color:var(--muted);
+    font-size:16px;transition:.2s;}
+  .refresh:active{transform:scale(.92);background:var(--surface-2);}
+
+  /* Period tabs */
+  .periods{display:flex;gap:6px;overflow-x:auto;margin-bottom:14px;
+    scrollbar-width:none;padding-bottom:2px;}
+  .periods::-webkit-scrollbar{display:none;}
+  .pill{flex:0 0 auto;padding:8px 15px;border-radius:20px;background:var(--surface);
+    border:1px solid var(--line);color:var(--muted);font-size:13px;font-weight:600;
+    white-space:nowrap;transition:.15s;}
+  .pill.active{background:var(--accent);color:#04121a;border-color:var(--accent);}
+  .pill:active{transform:scale(.95);}
+
+  /* Datumkiezer */
+  .daterange{display:flex;align-items:flex-end;gap:10px;margin:-4px 0 16px;
+    padding:12px 14px;background:#000;border:1px solid var(--line);border-radius:14px;}
+  .daterange .df{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0;}
+  .daterange label{font-size:10px;color:var(--dim);text-transform:uppercase;
+    letter-spacing:.6px;font-weight:600;}
+  .daterange input[type=date]{background:var(--surface-2);border:1px solid var(--line);
+    color:var(--txt);border-radius:9px;padding:9px 10px;font-size:13px;font-family:var(--font);
+    width:100%;color-scheme:dark;}
+  .daterange .dsep{color:var(--dim);font-size:14px;padding-bottom:10px;}
+
+  /* Store tabs */
+  .stores{display:flex;gap:6px;overflow-x:auto;margin-bottom:18px;
+    scrollbar-width:none;}
+  .stores::-webkit-scrollbar{display:none;}
+  .store{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:7px 13px;
+    border-radius:12px;background:var(--surface);border:1px solid var(--line);
+    color:var(--muted);font-size:13px;font-weight:600;transition:.15s;}
+  .store .dot{width:8px;height:8px;border-radius:50%;}
+  .store.active{color:var(--txt);border-color:var(--dim);background:var(--surface-2);}
+  .store:active{transform:scale(.96);}
+
+  /* Hero profit */
+  .hero{background:#000;border:none;border-radius:20px;padding:20px;margin-bottom:14px;
+    position:relative;overflow:hidden;display:flex;align-items:center;
+    justify-content:space-between;gap:10px;}
+  .hero-left{position:relative;z-index:2;min-width:0;}
+  .hero-marge{position:relative;flex:0 0 auto;width:150px;height:150px;
+    display:grid;place-items:center;}
+  .hero-marge #gl3d{position:absolute;inset:0;width:150px;height:150px;
+    opacity:.75;pointer-events:none;
+    -webkit-mask-image:radial-gradient(circle,#000 52%,transparent 74%);
+    mask-image:radial-gradient(circle,#000 52%,transparent 74%);}
+  .marge-num{position:relative;z-index:2;display:flex;flex-direction:column;
+    align-items:center;line-height:1;pointer-events:none;}
+  .marge-num b{font-size:34px;font-weight:800;letter-spacing:-1.5px;color:var(--green);
+    text-shadow:0 2px 16px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.8);}
+  .marge-num em{font-style:normal;font-size:10px;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-top:3px;
+    text-shadow:0 1px 6px rgba(0,0,0,.9);}
+  .hero .lbl{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;
+    letter-spacing:.8px;margin-bottom:6px;}
+  .hero .val{font-size:34px;font-weight:800;letter-spacing:-1.5px;line-height:1.05;}
+  .hero .sub{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;}
+  .chg{font-weight:700;padding:2px 8px;border-radius:8px;font-size:12px;}
+  .chg.up{color:var(--green);background:rgba(47,214,125,.12);}
+  .chg.down{color:var(--red);background:rgba(255,92,92,.12);}
+  .hero .margin{color:var(--dim);}
+
+  /* KPI grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+  .card{background:#000;border:1px solid var(--line);border-radius:16px;padding:13px 14px;}
+  .card .lbl{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;
+    letter-spacing:.6px;margin-bottom:6px;display:flex;align-items:center;gap:5px;}
+  .card .val{font-size:24px;font-weight:700;letter-spacing:-.5px;}
+  .card .val .u{font-size:14px;color:var(--muted);font-weight:600;}
+  .card .foot{font-size:11px;margin-top:6px;font-weight:600;}
+  .up-t{color:var(--green);} .down-t{color:var(--red);} .neu-t{color:var(--dim);} .amber-t{color:var(--amber);}
+  .ico{width:6px;height:6px;border-radius:2px;}
+
+  /* Breakdown */
+  .section-lbl{font-size:12px;color:var(--dim);font-weight:700;text-transform:uppercase;
+    letter-spacing:.8px;margin:20px 4px 10px;}
+  .row{display:flex;align-items:center;justify-content:space-between;
+    padding:13px 15px;background:#000;border:1px solid var(--line);
+    border-radius:14px;margin-bottom:8px;}
+  .row .name{font-size:14px;font-weight:600;color:var(--dim);}
+  .row .amt{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;}
+
+  /* Bottom nav */
+  .nav{position:fixed;bottom:0;left:0;right:0;background:rgba(5,7,9,.92);
+    backdrop-filter:blur(20px);border-top:1px solid var(--line);
+    display:flex;justify-content:space-around;padding:10px 0 calc(10px + env(safe-area-inset-bottom));}
+  .nav a{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--dim);
+    font-size:10px;font-weight:600;}
+  .nav a.on{color:var(--accent);}
+  .nav .g{font-size:19px;}
+
+  .fade{animation:f .3s ease;}
+  @keyframes f{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  /* Inlogscherm */
+  #lockscreen{position:fixed;inset:0;background:var(--bg);z-index:1000;
+    display:grid;place-items:center;padding:24px;
+    padding-top:calc(24px + env(safe-area-inset-top));}
+  .lock-card{width:100%;max-width:340px;text-align:center;}
+  .lock-logo{width:56px;height:56px;margin:0 auto 20px;border-radius:16px;
+    background:#000;border:1px solid var(--line);display:grid;place-items:center;
+    font-size:24px;color:var(--green);}
+  .lock-card h2{font-size:26px;font-weight:800;letter-spacing:-.5px;margin-bottom:8px;}
+  .lock-card p{font-size:13px;color:var(--dim);margin-bottom:24px;}
+  .lock-card input{width:100%;background:#000;border:1px solid var(--line);
+    color:var(--txt);border-radius:12px;padding:14px 16px;font-size:15px;
+    font-family:var(--font);text-align:center;margin-bottom:10px;}
+  .lock-card input:focus{outline:none;border-color:var(--green);}
+  .lock-card button{width:100%;background:var(--green);color:#04121a;border:none;
+    border-radius:12px;padding:14px;font-size:15px;font-weight:700;
+    font-family:var(--font);transition:.15s;}
+  .lock-card button:active{transform:scale(.97);}
+  .lock-err{color:var(--red);font-size:13px;margin-top:12px;min-height:18px;font-weight:600;}
+</style>
+</head>
+<body>
+<div id="lockscreen">
+  <div class="lock-card">
+    <div class="lock-logo">◈</div>
+    <h2>Profit</h2>
+    <p>Voer je wachtwoord in om verder te gaan</p>
+    <input type="password" id="pw" placeholder="Wachtwoord" autocomplete="off"
+      onkeydown="if(event.key==='Enter')tryLogin()">
+    <button onclick="tryLogin()">Inloggen</button>
+    <div class="lock-err" id="lockErr"></div>
+  </div>
+</div>
+<div id="app" style="display:none;">
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1 id="storeTitle">Alle stores</h1>
+      <div class="date" id="dateLbl">Vandaag · 20 jul</div>
+    </div>
+    <div class="refresh" onclick="render(true)">↻</div>
+  </div>
+
+  <div class="periods" id="periods"></div>
+  <div class="daterange" id="daterange" style="display:none;">
+    <div class="df">
+      <label>Van</label>
+      <input type="date" id="dFrom" onchange="onDate()">
+    </div>
+    <span class="dsep">→</span>
+    <div class="df">
+      <label>Tot</label>
+      <input type="date" id="dTo" onchange="onDate()">
+    </div>
+  </div>
+  <div class="stores" id="storeTabs"></div>
+
+  <div id="content"></div>
+</div>
+
+<div class="nav">
+  <a class="on"><span class="g">▦</span>Overzicht</a>
+  <a><span class="g">◫</span>Orders</a>
+  <a><span class="g">◈</span>Ads</a>
+  <a><span class="g">⚙</span>Settings</a>
+</div>
+</div>
+
+<script>
+// ---- Inlog ----
+const PW='maico0804!';
+let unlocked=false;
+function tryLogin(){
+  const v=document.getElementById('pw').value;
+  if(v===PW){
+    unlocked=true;
+    document.getElementById('lockscreen').style.display='none';
+    document.getElementById('app').style.display='block';
+    render();                     // dashboard nu opbouwen
+    setTimeout(init3D,80);        // 3D starten
+  }else{
+    document.getElementById('lockErr').textContent='Onjuist wachtwoord';
+    document.getElementById('pw').value='';
+  }
+}
+
+// ---- VOORBEELDDATA (wordt later vervangen door echte Shopify/ad-data) ----
+const stores = [
+  {id:'all',  name:'Alle stores', color:'#00e5c7'},
+  {id:'nl',   name:'Store NL',    color:'#2fd67d'},
+  {id:'de',   name:'Store DE',    color:'#ffb648'},
+  {id:'fr',   name:'Store FR',    color:'#8b7cff'},
+];
+const periods = ['Vandaag','Gisteren','Deze week','Deze maand','30 dagen','Custom'];
+
+// factor per periode om data te schalen (demo)
+const pFactor = {'Vandaag':1,'Gisteren':.92,'Deze week':6.4,'Deze maand':27,'30 dagen':30,'Custom':1};
+
+// custom datumbereik
+let customFrom=null, customTo=null;
+
+// basiscijfers per store (voor "Vandaag")
+const base = {
+  all:{rev:8420, spend:2150, cogs:2530, orders:142, aov:59.3, roas:3.92, chg:12.4},
+  nl: {rev:4180, spend:980,  cogs:1250, orders:71,  aov:58.9, roas:4.27, chg:8.1},
+  de: {rev:2640, spend:720,  cogs:800,  orders:44,  aov:60.0, roas:3.67, chg:18.9},
+  fr: {rev:1600, spend:890,  cogs:480,  orders:27,  aov:59.3, roas:1.80, chg:-3.2},
+};
+
+let curStore='all', curPeriod='Vandaag';
+
+const eur = n => '€'+n.toLocaleString('nl-NL',{maximumFractionDigits:0});
+const eur2= n => '€'+n.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function calc(sid,per){
+  const b=base[sid];
+  let f=pFactor[per];
+  if(per==='Custom' && customFrom && customTo){
+    const days=Math.max(1,Math.round((new Date(customTo)-new Date(customFrom))/864e5)+1);
+    f=days;
+  }
+  const rev=Math.round(b.rev*f), spend=Math.round(b.spend*f);
+  const cogs=Math.round(rev*0.29);            // COGS = 29% van omzet
+  const orders=Math.round(b.orders*f);
+  const profit=rev-spend-cogs;
+  const roas=+(rev/spend).toFixed(2);
+  const aov=+(rev/orders).toFixed(1);
+  const margin=+((profit/rev)*100).toFixed(1);
+  return {rev,spend,cogs,orders,profit,roas,aov,margin,chg:b.chg};
+}
+
+function buildTabs(){
+  document.getElementById('periods').innerHTML = periods.map(p=>
+    `<div class="pill ${p===curPeriod?'active':''}" onclick="setPeriod('${p}')">${p}</div>`).join('');
+  document.getElementById('storeTabs').innerHTML = stores.map(s=>
+    `<div class="store ${s.id===curStore?'active':''}" onclick="setStore('${s.id}')">
+       <span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join('');
+}
+function setPeriod(p){curPeriod=p;render();}
+function setStore(s){curStore=s;render();}
+function onDate(){
+  customFrom=document.getElementById('dFrom').value;
+  customTo=document.getElementById('dTo').value;
+  if(customFrom && customTo && customFrom>customTo){ // omdraaien indien nodig
+    [customFrom,customTo]=[customTo,customFrom];
+    document.getElementById('dFrom').value=customFrom;
+    document.getElementById('dTo').value=customTo;
+  }
+  render();
+}
+
+function render(anim){
+  buildTabs();
+  // datumkiezer alleen bij Custom
+  const dr=document.getElementById('daterange');
+  dr.style.display = curPeriod==='Custom' ? 'flex' : 'none';
+  if(curPeriod==='Custom' && !customFrom){
+    // standaard: laatste 7 dagen
+    const to=new Date(); const from=new Date(Date.now()-6*864e5);
+    customTo=to.toISOString().slice(0,10);
+    customFrom=from.toISOString().slice(0,10);
+    document.getElementById('dFrom').value=customFrom;
+    document.getElementById('dTo').value=customTo;
+  }
+  const d=calc(curStore,curPeriod);
+  const st=stores.find(s=>s.id===curStore);
+  document.getElementById('storeTitle').textContent=st.name;
+  let lbl = curPeriod+' · demo-data';
+  if(curPeriod==='Custom' && customFrom && customTo){
+    const fmt=s=>{const [y,m,dd]=s.split('-');return dd+'/'+m;};
+    lbl='Custom · '+fmt(customFrom)+' – '+fmt(customTo);
+  }
+  document.getElementById('dateLbl').textContent=lbl;
+
+  const up=d.chg>=0;
+  // ROAS kleur: >=2 groen, 1.7-1.99 oranje, daaronder rood
+  const roasVal = d.roas>=2 ? 'var(--green)' : (d.roas>=1.7 ? 'var(--amber)' : 'var(--red)');
+  const roasFoot= d.roas>=2 ? 'gezond' : (d.roas>=1.7 ? 'let op' : 'te laag');
+  update3D(d.roas);
+  const c=document.getElementById('content');
+  c.className = anim?'fade':'';
+  c.innerHTML=`
+    <div class="hero">
+      <div class="hero-left">
+        <div class="lbl">Omzet ${curPeriod.toLowerCase()}</div>
+        <div class="val">${eur(d.rev)}</div>
+        <div class="sub">
+          <span class="chg ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(d.chg)}%</span>
+          <span class="margin">winst ${eur(d.profit)}</span>
+        </div>
+      </div>
+      <div class="hero-marge">
+        <canvas id="gl3d"></canvas>
+        <div class="marge-num"><b>${d.margin}%</b><em>profit</em></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      ${kpiColor('Winst',eur(d.profit),'var(--green)','')}
+      ${kpiColor('ROAS',d.roas.toFixed(2)+'x',roasVal,roasFoot)}
+      ${kpiColor('Ad spend',eur(d.spend),'var(--amber)',(d.spend/d.rev*100).toFixed(0)+'% van omzet')}
+      ${kpi('Est. COGS',eur(d.cogs),'','neu-t','29% van omzet')}
+      ${kpi('Orders',d.orders,'','up-t','')}
+      ${kpi('AOV',eur2(d.aov),'','neu-t','gem. orderwaarde')}
+    </div>
+
+    <div class="section-lbl">Winstopbouw</div>
+    ${row('Omzet','+ '+eur(d.rev),'var(--green)')}
+    ${row('Ad spend','− '+eur(d.spend),'var(--red)')}
+    ${row('Est. COGS','− '+eur(d.cogs),'var(--red)')}
+    ${row('Nettowinst','= '+eur(d.profit),'var(--accent)')}
+  `;
+  requestAnimationFrame(init3D);
+}
+function kpi(l,v,u,cls,foot){
+  return `<div class="card">
+    <div class="lbl">${l}</div>
+    <div class="val">${v}<span class="u">${u}</span></div>
+    ${foot?`<div class="foot ${cls}">${foot}</div>`:''}
+  </div>`;
+}
+function kpiColor(l,v,color,foot){
+  return `<div class="card">
+    <div class="lbl">${l}</div>
+    <div class="val" style="color:${color}">${v}</div>
+    ${foot?`<div class="foot">${foot}</div>`:''}
+  </div>`;
+}
+function row(name,amt,col){
+  return `<div class="row"><span class="name">${name}</span>
+    <span class="amt" style="color:${col}">${amt}</span></div>`;
+}
+
+// ---- 3D marge-visual (Three.js) ----
+let three=null, spin={x:0,y:0}, curRoas=3;
+function init3D(){
+  const canvas=document.getElementById('gl3d');
+  if(!canvas) return;
+  if(three && three.rnd.domElement===canvas) return; // al gekoppeld
+  if(three){ three.rnd.dispose(); }                    // canvas vervangen -> opnieuw
+
+  const scene=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(40,1,0.1,100);
+  cam.position.set(0,0,4.8);
+  let rnd;
+  try{
+    rnd=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  }catch(e){
+    canvas.style.display='none';
+    return;
+  }
+  rnd.setSize(150,150,false);
+  rnd.setPixelRatio(Math.min(window.devicePixelRatio,2));
+
+  // ---- particle-bol: veel kleine bolletjes op een fluctuerend boloppervlak ----
+  const COUNT=900;
+  const base=new Float32Array(COUNT*3);   // richtingsvectoren (genormaliseerd)
+  const seed=new Float32Array(COUNT);
+  const posArr=new Float32Array(COUNT*3);
+  for(let i=0;i<COUNT;i++){
+    // gelijkmatig over bol (fibonacci-spiraal)
+    const phi=Math.acos(1-2*(i+0.5)/COUNT);
+    const theta=Math.PI*(1+Math.sqrt(5))*i;
+    const x=Math.sin(phi)*Math.cos(theta);
+    const y=Math.sin(phi)*Math.sin(theta);
+    const z=Math.cos(phi);
+    base[i*3]=x; base[i*3+1]=y; base[i*3+2]=z;
+    seed[i]=Math.random()*Math.PI*2;
+  }
+  const pgeo=new THREE.BufferGeometry();
+  pgeo.setAttribute('position',new THREE.BufferAttribute(posArr,3));
+  const pmat=new THREE.PointsMaterial({
+    color:0x00ff88, size:0.07, transparent:true, opacity:0.95,
+    blending:THREE.AdditiveBlending, depthWrite:false
+  });
+  const cloud=new THREE.Points(pgeo,pmat);
+  cloud.rotation.set(spin.x,spin.y,0);
+  scene.add(cloud);
+
+  const key=new THREE.DirectionalLight(0xffffff,2.2); key.position.set(3,4,5); scene.add(key);
+  const rim=new THREE.DirectionalLight(0x5cffb0,1.6); rim.position.set(-4,-2,-3); scene.add(rim);
+  scene.add(new THREE.AmbientLight(0x223044,0.9));
+  const point=new THREE.PointLight(0x00e5c7,1.4,20); point.position.set(0,0,4); scene.add(point);
+
+  three={scene,cam,rnd,cloud,pmat,base,seed,posArr,pgeo,COUNT};
+  applyRoas();
+
+  if(!init3D._looping){
+    init3D._looping=true;
+    let t=0;
+    (function loop(){
+      requestAnimationFrame(loop);
+      if(!three) return;
+      t+=0.016;
+      const {base,seed,posArr,pgeo,COUNT,cloud}=three;
+      for(let i=0;i<COUNT;i++){
+        const bx=base[i*3],by=base[i*3+1],bz=base[i*3+2];
+        const r=1
+          +0.16*Math.sin(t*1.6+seed[i])
+          +0.10*Math.sin(t*0.9+bx*3.0+by*2.0)
+          +0.07*Math.sin(t*2.3+bz*4.0);
+        posArr[i*3]=bx*r; posArr[i*3+1]=by*r; posArr[i*3+2]=bz*r;
+      }
+      pgeo.attributes.position.needsUpdate=true;
+      spin.x+=0.0015; spin.y+=0.004;
+      cloud.rotation.x=spin.x; cloud.rotation.y=spin.y;
+      three.rnd.render(three.scene,three.cam);
+    })();
+  }
+}
+function applyRoas(){
+  if(!three || !three.pmat) return;
+  const r=curRoas;
+  const hex = r>=2 ? 0x00ff88 : (r>=1.7 ? 0xff9500 : 0xff5c5c);
+  three.pmat.color.setHex(hex);
+}
+function update3D(roas){ curRoas=roas; applyRoas(); }
+
+// dashboard wacht op inlog; focus op wachtwoordveld
+window.addEventListener('load',()=>{document.getElementById('pw').focus();});
+
+</script>
+</body>
+</html>
