@@ -12,7 +12,7 @@
   :root{
     --bg:#050709; --surface:#0c1017; --surface-2:#141a24; --line:#161c26;
     --txt:#e8edf4; --muted:#7d8aa0; --dim:#525d70;
-    --green:#00ff88; --red:#ff5c5c; --accent:#00e5c7; --amber:#ff9500;
+    --green:#00ff88; --red:#ff5c5c; --accent:#00e5c7; --amber:#ff9500; --pink:#ff2d78;
     --font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -201,8 +201,9 @@ function tryLogin(){
     unlocked=true;
     document.getElementById('lockscreen').style.display='none';
     document.getElementById('app').style.display='block';
-    render();                     // dashboard nu opbouwen
+    render();                     // dashboard nu opbouwen (demo tot live binnen is)
     setTimeout(init3D,80);        // 3D starten
+    loadLive(curPeriod).then(ok=>{ if(ok) render(true); }); // echte cijfers ophalen
   }else{
     document.getElementById('lockErr').textContent='Onjuist wachtwoord';
     document.getElementById('pw').value='';
@@ -211,10 +212,9 @@ function tryLogin(){
 
 // ---- VOORBEELDDATA (wordt later vervangen door echte Shopify/ad-data) ----
 const stores = [
-  {id:'all',  name:'Alle stores', color:'#00e5c7'},
-  {id:'nl',   name:'Store NL',    color:'#2fd67d'},
-  {id:'de',   name:'Store DE',    color:'#ffb648'},
-  {id:'fr',   name:'Store FR',    color:'#8b7cff'},
+  {id:'all', name:'Alle stores', color:'#00e5c7'},
+  {id:'fr',  name:'FR store 👚',  color:'#00ff88'},
+  {id:'uk',  name:'UK store 👚',  color:'#ff9500'},
 ];
 const periods = ['Vandaag','Gisteren','Deze week','Deze maand','30 dagen','Custom'];
 
@@ -226,13 +226,34 @@ let customFrom=null, customTo=null;
 
 // basiscijfers per store (voor "Vandaag")
 const base = {
-  all:{rev:8420, spend:2150, cogs:2530, orders:142, aov:59.3, roas:3.92, chg:12.4},
-  nl: {rev:4180, spend:980,  cogs:1250, orders:71,  aov:58.9, roas:4.27, chg:8.1},
-  de: {rev:2640, spend:720,  cogs:800,  orders:44,  aov:60.0, roas:3.67, chg:18.9},
-  fr: {rev:1600, spend:890,  cogs:480,  orders:27,  aov:59.3, roas:1.80, chg:-3.2},
+  all:{rev:5780, spend:1470, cogs:1676, orders:98,  aov:59.0, roas:3.93, chg:9.4,  refundRate:0.047},
+  fr: {rev:3180, spend:760,  cogs:922,  orders:54,  aov:58.9, roas:4.18, chg:11.2, refundRate:0.041},
+  uk: {rev:2600, spend:710,  cogs:754,  orders:44,  aov:59.1, roas:3.66, chg:6.8,  refundRate:0.055},
 };
 
 let curStore='all', curPeriod='Vandaag';
+
+// ---- LIVE DATA (Shopify) ----
+// live[periodeLabel][storeId] = {revenue,refunds,cogs,orders,netRev}
+const live = {};
+const periodCode = {
+  'Vandaag':'today','Gisteren':'yesterday','Deze week':'week',
+  'Deze maand':'month','30 dagen':'30d','Custom':'custom'
+};
+async function loadLive(per){
+  try{
+    let url='/api/shopify?period='+periodCode[per];
+    if(per==='Custom' && customFrom && customTo){
+      url+='&from='+customFrom+'&to='+customTo;
+    }
+    const r=await fetch(url);
+    if(!r.ok) return false;
+    const d=await r.json();
+    // alleen gebruiken als er echt omzet in zit (anders demo laten staan)
+    live[per]={all:d.all, fr:d.fr, uk:d.uk};
+    return true;
+  }catch(e){ return false; }
+}
 
 const eur = n => '€'+n.toLocaleString('nl-NL',{maximumFractionDigits:0});
 const eur2= n => '€'+n.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -244,14 +265,25 @@ function calc(sid,per){
     const days=Math.max(1,Math.round((new Date(customTo)-new Date(customFrom))/864e5)+1);
     f=days;
   }
-  const rev=Math.round(b.rev*f), spend=Math.round(b.spend*f);
-  const cogs=Math.round(rev*0.29);            // COGS = 29% van omzet
-  const orders=Math.round(b.orders*f);
-  const profit=rev-spend-cogs;
-  const roas=+(rev/spend).toFixed(2);
-  const aov=+(rev/orders).toFixed(1);
-  const margin=+((profit/rev)*100).toFixed(1);
-  return {rev,spend,cogs,orders,profit,roas,aov,margin,chg:b.chg};
+
+  // echte Shopify-cijfers als die er zijn voor deze periode+store
+  const L = live[per] && live[per][sid];
+  const hasLive = L && !L.error && typeof L.revenue==='number';
+
+  const rev     = hasLive ? L.revenue : Math.round(b.rev*f);
+  const refunds = hasLive ? L.refunds : Math.round(rev*(b.refundRate||0.04));
+  const cogs    = hasLive ? L.cogs    : Math.round(rev*0.29);
+  const orders  = hasLive ? L.orders  : Math.round(b.orders*f);
+
+  // ad spend & ROAS komen (nog) niet uit Shopify -> demo tot Google Ads gekoppeld is
+  const spend   = Math.round(b.spend*f);
+
+  const netRev  = rev-refunds;                            // omzet na refunds
+  const profit  = netRev-spend-cogs;                     // winst incl. refunds eraf
+  const roas    = +(rev/spend).toFixed(2);
+  const aov     = orders ? +(rev/orders).toFixed(1) : 0;
+  const margin  = netRev ? +((profit/netRev)*100).toFixed(1) : 0;
+  return {rev,spend,cogs,orders,profit,roas,aov,margin,refunds,netRev,chg:b.chg,hasLive};
 }
 
 function buildTabs(){
@@ -261,7 +293,11 @@ function buildTabs(){
     `<div class="store ${s.id===curStore?'active':''}" onclick="setStore('${s.id}')">
        <span class="dot" style="background:${s.color}"></span>${s.name}</div>`).join('');
 }
-function setPeriod(p){curPeriod=p;render();}
+function setPeriod(p){
+  curPeriod=p;
+  render();                          // meteen tonen (demo of gecachte live)
+  if(!live[p]) loadLive(p).then(ok=>{ if(ok) render(true); });
+}
 function setStore(s){curStore=s;render();}
 function onDate(){
   customFrom=document.getElementById('dFrom').value;
@@ -271,7 +307,9 @@ function onDate(){
     document.getElementById('dFrom').value=customFrom;
     document.getElementById('dTo').value=customTo;
   }
+  delete live['Custom'];              // opnieuw ophalen voor nieuw bereik
   render();
+  loadLive('Custom').then(ok=>{ if(ok) render(true); });
 }
 
 function render(anim){
@@ -290,10 +328,11 @@ function render(anim){
   const d=calc(curStore,curPeriod);
   const st=stores.find(s=>s.id===curStore);
   document.getElementById('storeTitle').textContent=st.name;
-  let lbl = curPeriod+' · demo-data';
+  const tag = d.hasLive ? ' · live' : ' · demo-data';
+  let lbl = curPeriod+tag;
   if(curPeriod==='Custom' && customFrom && customTo){
     const fmt=s=>{const [y,m,dd]=s.split('-');return dd+'/'+m;};
-    lbl='Custom · '+fmt(customFrom)+' – '+fmt(customTo);
+    lbl='Custom · '+fmt(customFrom)+' – '+fmt(customTo)+tag;
   }
   document.getElementById('dateLbl').textContent=lbl;
 
@@ -301,7 +340,7 @@ function render(anim){
   // ROAS kleur: >=2 groen, 1.7-1.99 oranje, daaronder rood
   const roasVal = d.roas>=2 ? 'var(--green)' : (d.roas>=1.7 ? 'var(--amber)' : 'var(--red)');
   const roasFoot= d.roas>=2 ? 'gezond' : (d.roas>=1.7 ? 'let op' : 'te laag');
-  update3D(d.roas);
+  update3D(d.margin);
   const c=document.getElementById('content');
   c.className = anim?'fade':'';
   c.innerHTML=`
@@ -316,7 +355,7 @@ function render(anim){
       </div>
       <div class="hero-marge">
         <canvas id="gl3d"></canvas>
-        <div class="marge-num"><b>${d.margin}%</b><em>profit</em></div>
+        <div class="marge-num"><b style="color:${marginColor(d.margin)}">${d.margin}%</b><em>profit</em></div>
       </div>
     </div>
 
@@ -325,12 +364,14 @@ function render(anim){
       ${kpiColor('ROAS',d.roas.toFixed(2)+'x',roasVal,roasFoot)}
       ${kpiColor('Ad spend',eur(d.spend),'var(--amber)',(d.spend/d.rev*100).toFixed(0)+'% van omzet')}
       ${kpi('Est. COGS',eur(d.cogs),'','neu-t','29% van omzet')}
+      ${kpiColor('Refunds',eur(d.refunds),'var(--pink)',(d.refunds/d.rev*100).toFixed(1)+'% van omzet')}
       ${kpi('Orders',d.orders,'','up-t','')}
       ${kpi('AOV',eur2(d.aov),'','neu-t','gem. orderwaarde')}
     </div>
 
     <div class="section-lbl">Winstopbouw</div>
     ${row('Omzet','+ '+eur(d.rev),'var(--green)')}
+    ${row('Refunds','− '+eur(d.refunds),'var(--red)')}
     ${row('Ad spend','− '+eur(d.spend),'var(--red)')}
     ${row('Est. COGS','− '+eur(d.cogs),'var(--red)')}
     ${row('Nettowinst','= '+eur(d.profit),'var(--accent)')}
@@ -357,7 +398,7 @@ function row(name,amt,col){
 }
 
 // ---- 3D marge-visual (Three.js) ----
-let three=null, spin={x:0,y:0}, curRoas=3;
+let three=null, spin={x:0,y:0}, curMargin=30;
 function init3D(){
   const canvas=document.getElementById('gl3d');
   if(!canvas) return;
@@ -435,11 +476,17 @@ function init3D(){
 }
 function applyRoas(){
   if(!three || !three.pmat) return;
-  const r=curRoas;
-  const hex = r>=2 ? 0x00ff88 : (r>=1.7 ? 0xff9500 : 0xff5c5c);
-  three.pmat.color.setHex(hex);
+  three.pmat.color.setHex(marginHex(curMargin));
 }
-function update3D(roas){ curRoas=roas; applyRoas(); }
+function update3D(margin){ curMargin=margin; applyRoas(); }
+
+// kleur op basis van profit-marge: >20 groen, 10-20 oranje, <10 roze/rood
+function marginColor(m){
+  return m>20 ? 'var(--green)' : (m>=10 ? 'var(--amber)' : 'var(--pink)');
+}
+function marginHex(m){
+  return m>20 ? 0x00ff88 : (m>=10 ? 0xff9500 : 0xff2d78);
+}
 
 // dashboard wacht op inlog; focus op wachtwoordveld
 window.addEventListener('load',()=>{document.getElementById('pw').focus();});
