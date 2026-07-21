@@ -77,7 +77,7 @@
     mask-image:radial-gradient(circle,#000 52%,transparent 74%);}
   .marge-num{position:relative;z-index:2;display:flex;flex-direction:column;
     align-items:center;line-height:1;pointer-events:none;}
-  .marge-num b{font-size:34px;font-weight:800;letter-spacing:-1.5px;color:var(--green);
+  .marge-num b{font-size:26px;font-weight:800;letter-spacing:-1px;color:var(--green);
     text-shadow:0 2px 16px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.8);}
   .marge-num em{font-style:normal;font-size:10px;color:var(--dim);
     text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-top:3px;
@@ -213,8 +213,8 @@ function tryLogin(){
 // ---- VOORBEELDDATA (wordt later vervangen door echte Shopify/ad-data) ----
 const stores = [
   {id:'all', name:'Alle stores', color:'#00e5c7'},
-  {id:'fr',  name:'FR store 👚',  color:'#00ff88'},
-  {id:'uk',  name:'UK store 👚',  color:'#ff9500'},
+  {id:'fr',  name:'FR store 🇫🇷',  color:'#00ff88'},
+  {id:'uk',  name:'UK store 🇬🇧',  color:'#ff9500'},
 ];
 const periods = ['Vandaag','Gisteren','Deze week','Deze maand','30 dagen','Custom'];
 
@@ -233,8 +233,10 @@ const base = {
 
 let curStore='all', curPeriod='Vandaag';
 
-const eur = n => '€'+n.toLocaleString('nl-NL',{maximumFractionDigits:0});
-const eur2= n => '€'+n.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
+// valuta-symbool op basis van gekozen store (UK = £, rest = €)
+function curSym(){ return curStore==='uk' ? '£' : '€'; }
+const eur = n => curSym()+n.toLocaleString('nl-NL',{maximumFractionDigits:0});
+const eur2= n => curSym()+n.toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
 
 // ---- Live data (van de server) met voorbeelddata als terugval ----
 let liveData = null;      // {fr,uk,all} zodra opgehaald
@@ -343,12 +345,12 @@ function render(anim){
         <div class="val">${eur(d.rev)}</div>
         <div class="sub">
           <span class="chg ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(d.chg)}%</span>
-          <span class="margin">winst ${eur(d.profit)}</span>
+          <span class="margin">${d.margin}% winst</span>
         </div>
       </div>
       <div class="hero-marge">
         <canvas id="gl3d"></canvas>
-        <div class="marge-num"><b style="color:${marginColor(d.margin)}">${d.margin}%</b><em>profit</em></div>
+        <div class="marge-num"><b style="color:${marginColor(d.margin)}">${eur(d.profit)}</b><em>profit</em></div>
       </div>
     </div>
 
