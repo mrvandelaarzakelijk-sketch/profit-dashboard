@@ -1,9 +1,9 @@
 // Vercel serverless functie: haalt orders + refunds op uit Shopify (FR + UK)
 // Nieuwe Shopify-flow (2026): Client ID + Secret -> access token (client credentials grant).
-// Credentials komen uit Vercel Environment Variables.
 
 const API_VERSION = '2026-01';
-const COGS_RATE = 0.29; // COGS = 29% van omzet
+const COGS_RATE = 0.29;
+const GBP_TO_EUR = 1.17; // wisselkoers pond -> euro (pas aan indien nodig)
 
 const STORES = {
   fr: {
@@ -18,13 +18,12 @@ const STORES = {
   },
 };
 
-const tokenCache = {}; // domain -> { token, expires }
+const tokenCache = {};
 
 async function getAccessToken(store) {
   const now = Date.now();
   const cached = tokenCache[store.domain];
   if (cached && cached.expires > now + 60000) return cached.token;
-
   const url = `https://${store.domain}/admin/oauth/access_token`;
   const resp = await fetch(url, {
     method: 'POST',
@@ -35,7 +34,6 @@ async function getAccessToken(store) {
       grant_type: 'client_credentials',
     }),
   });
-
   const data = await resp.json();
   if (!resp.ok || !data.access_token) {
     throw new Error('token-fout: ' + JSON.stringify(data));
@@ -45,24 +43,56 @@ async function getAccessToken(store) {
   return data.access_token;
 }
 
+function lastSunday(year, month) {
+  const d = new Date(Date.UTC(year, month + 1, 0, 1, 0, 0));
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - day);
+  return d.getTime();
+}
+function amsOffsetHours(d) {
+  const year = d.getUTCFullYear();
+  const dstStart = lastSunday(year, 2);
+  const dstEnd = lastSunday(year, 9);
+  const t = d.getTime();
+  return (t >= dstStart && t < dstEnd) ? 2 : 1;
+}
+function amsMidnightUTC(offsetDays) {
+  const now = new Date();
+  const off = amsOffsetHours(now);
+  const local = new Date(now.getTime() + off * 3600e3);
+  const localMidnight = Date.UTC(
+    local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() - offsetDays, 0, 0, 0
+  );
+  return new Date(localMidnight - off * 3600e3);
+}
+
 function dateRange(period, from, to) {
   const now = new Date();
-  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   let start, end;
-  const today = startOfDay(now);
   switch (period) {
-    case 'Vandaag': start = today; end = now; break;
-    case 'Gisteren': start = new Date(today.getTime() - 864e5); end = today; break;
+    case 'Vandaag':
+      start = amsMidnightUTC(0); end = now; break;
+    case 'Gisteren':
+      start = amsMidnightUTC(1); end = amsMidnightUTC(0); break;
     case 'Deze week': {
-      const day = (now.getDay() + 6) % 7;
-      start = new Date(today.getTime() - day * 864e5); end = now; break;
+      const off = amsOffsetHours(now);
+      const local = new Date(now.getTime() + off * 3600e3);
+      const day = (local.getUTCDay() + 6) % 7;
+      start = amsMidnightUTC(day); end = now; break;
     }
-    case 'Deze maand': start = new Date(now.getFullYear(), now.getMonth(), 1); end = now; break;
-    case '30 dagen': start = new Date(today.getTime() - 30 * 864e5); end = now; break;
+    case 'Deze maand': {
+      const off = amsOffsetHours(now);
+      const local = new Date(now.getTime() + off * 3600e3);
+      const dayOfMonth = local.getUTCDate() - 1;
+      start = amsMidnightUTC(dayOfMonth); end = now; break;
+    }
+    case '30 dagen':
+      start = amsMidnightUTC(30); end = now; break;
     case 'Custom':
-      start = from ? new Date(from) : new Date(today.getTime() - 6 * 864e5);
-      end = to ? new Date(new Date(to).getTime() + 864e5) : now; break;
-    default: start = today; end = now;
+      start = from ? new Date(from + 'T00:00:00+02:00') : amsMidnightUTC(6);
+      end = to ? new Date(to + 'T23:59:59+02:00') : now; break;
+    default:
+      start = amsMidnightUTC(0); end = now;
   }
   return { start: start.toISOString(), end: end.toISOString() };
 }
@@ -71,20 +101,16 @@ async function fetchStore(store, startISO, endISO) {
   if (!store.domain || !store.clientId || !store.clientSecret) {
     return { rev: 0, refunds: 0, orders: 0, error: 'store niet geconfigureerd' };
   }
-
   let token;
   try {
     token = await getAccessToken(store);
   } catch (e) {
     return { rev: 0, refunds: 0, orders: 0, error: String(e.message || e) };
   }
-
   const url = `https://${store.domain}/admin/api/${API_VERSION}/graphql.json`;
   const searchQuery = `created_at:>=${startISO} created_at:<=${endISO}`;
-
   let rev = 0, refunds = 0, orderCount = 0;
   let cursor = null, hasNext = true;
-
   while (hasNext) {
     const query = `
       query($cursor: String) {
@@ -99,7 +125,6 @@ async function fetchStore(store, startISO, endISO) {
           pageInfo { hasNextPage endCursor }
         }
       }`;
-
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
@@ -108,12 +133,10 @@ async function fetchStore(store, startISO, endISO) {
       },
       body: JSON.stringify({ query, variables: { cursor } }),
     });
-
     const json = await resp.json();
     if (json.errors) {
       return { rev: 0, refunds: 0, orders: 0, error: JSON.stringify(json.errors) };
     }
-
     const conn = json.data.orders;
     for (const edge of conn.edges) {
       const n = edge.node;
@@ -126,7 +149,6 @@ async function fetchStore(store, startISO, endISO) {
     hasNext = conn.pageInfo.hasNextPage;
     cursor = conn.pageInfo.endCursor;
   }
-
   return { rev, refunds, orders: orderCount };
 }
 
@@ -151,23 +173,24 @@ export default async function handler(req, res) {
     const from = req.query.from || null;
     const to = req.query.to || null;
     const { start, end } = dateRange(period, from, to);
-
-    const adSpend = { fr: 0, uk: 0 }; // Google Ads komt later
-
+    const adSpend = { fr: 0, uk: 0 };
     const [fr, uk] = await Promise.all([
       fetchStore(STORES.fr, start, end),
       fetchStore(STORES.uk, start, end),
     ]);
-
+    const ukEur = {
+      rev: uk.rev * GBP_TO_EUR,
+      refunds: uk.refunds * GBP_TO_EUR,
+      orders: uk.orders,
+    };
     const result = {
       period,
       range: { start, end },
-      fr: toMetrics(fr.rev, fr.refunds, fr.orders, adSpend.fr),
-      uk: toMetrics(uk.rev, uk.refunds, uk.orders, adSpend.uk),
-      all: toMetrics(fr.rev + uk.rev, fr.refunds + uk.refunds, fr.orders + uk.orders, adSpend.fr + adSpend.uk),
+      fr: { ...toMetrics(fr.rev, fr.refunds, fr.orders, adSpend.fr), currency: 'EUR' },
+      uk: { ...toMetrics(uk.rev, uk.refunds, uk.orders, adSpend.uk), currency: 'GBP' },
+      all: { ...toMetrics(fr.rev + ukEur.rev, fr.refunds + ukEur.refunds, fr.orders + ukEur.orders, adSpend.fr + adSpend.uk), currency: 'EUR' },
       errors: { fr: fr.error || null, uk: uk.error || null },
     };
-
     res.setHeader('Cache-Control', 's-maxage=60');
     res.status(200).json(result);
   } catch (e) {
