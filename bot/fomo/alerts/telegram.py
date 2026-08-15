@@ -43,6 +43,25 @@ def redact(text: str) -> str:
     return _TOKEN_PATTERN.sub("<redacted-bot-token>", text)
 
 
+def escape_html(value: object) -> str:
+    """Escape a value for Telegram's HTML parse mode.
+
+    **Every interpolated value must go through this.** Two distinct reasons:
+
+    1. A bare ``&`` — as in "P&L" — is not a valid entity and Telegram rejects the whole
+       message with "can't parse entities". The digest then silently stops arriving.
+    2. Token symbols and names come from **on-chain metadata, which anyone can set**.
+       A memecoin can legitimately be deployed with the symbol ``<a href="https://evil">``.
+       Interpolating that straight into our own alert lets the token author put clickable
+       links and formatting into a message the reader trusts. Trader nicknames come from
+       a local watchlist, but the same rule applies for free.
+
+    Telegram's HTML mode only needs ``&``, ``<`` and ``>`` escaped, and ``&`` must be
+    replaced first or it would double-escape the others.
+    """
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
     """Split on line boundaries so HTML tags are never cut in half.
 

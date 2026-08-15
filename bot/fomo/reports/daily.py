@@ -14,6 +14,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from ..alerts.telegram import escape_html as esc
 from ..store.jsonl import Store
 from ..trading.analytics import Performance
 from ..trading.paper import ClosedTrade
@@ -175,7 +176,7 @@ def render_telegram(digest: DailyDigest, *, mode: str = "paper") -> str:
             f"🔎 <b>Signalen</b> — {digest.n_signals} beoordeeld, {entries} entry-waardig",
         ]
         for state, count in sorted(digest.state_counts.items(), key=lambda kv: -kv[1]):
-            lines.append(f"• {state}: {count}")
+            lines.append(f"• {esc(state)}: {count}")
 
     if digest.top_signals:
         lines += ["", "🏆 <b>Beste kandidaten</b>"]
@@ -184,17 +185,20 @@ def render_telegram(digest: DailyDigest, *, mode: str = "paper") -> str:
             master = float(record.get("master_score", 0.0))
             state = record.get("state", "?")
             neff = float(record.get("n_effective", 0.0))
-            lines.append(f"• <b>${symbol}</b> {master:.0f}/100 · {state} · N_eff {neff:.2f}")
+            # symbol is attacker-controlled on-chain metadata — always escaped
+            lines.append(
+                f"• <b>${esc(symbol)}</b> {master:.0f}/100 · {esc(state)} · N_eff {neff:.2f}"
+            )
 
     if digest.veto_counts:
         top_vetoes = sorted(digest.veto_counts.items(), key=lambda kv: -kv[1])[:5]
         lines += ["", "⛔ <b>Meest voorkomende veto's</b>"]
-        lines += [f"• {rule}: {count}" for rule, count in top_vetoes]
+        lines += [f"• {esc(rule)}: {count}" for rule, count in top_vetoes]
 
     if digest.flag_counts:
         top_flags = sorted(digest.flag_counts.items(), key=lambda kv: -kv[1])[:5]
         lines += ["", "🚩 <b>False-positive flags</b>"]
-        lines += [f"• {flag}: {count}" for flag, count in top_flags]
+        lines += [f"• {esc(flag)}: {count}" for flag, count in top_flags]
 
     if digest.performance is not None:
         p = digest.performance
@@ -204,12 +208,12 @@ def render_telegram(digest: DailyDigest, *, mode: str = "paper") -> str:
             f"• win rate {p.win_rate:.0%} ({p.n_wins}W / {p.n_losses}L)",
             f"• expectancy {_pct(p.expectancy_pct)} per trade",
             f"• profit factor {p.profit_factor:.2f}",
-            f"• netto P&L ${p.total_pnl_usd:+,.2f} "
+            f"• netto P&amp;L ${p.total_pnl_usd:+,.2f} "
             f"(fees ${p.total_fees_usd:.2f}, slippage ${p.total_slippage_usd:.2f})",
             f"• gem. holdtijd {p.avg_hold_seconds / 60:.0f} min",
         ]
         if p.exit_reason_counts:
-            reasons = ", ".join(f"{k} {v}" for k, v in sorted(p.exit_reason_counts.items()))
+            reasons = ", ".join(f"{esc(k)} {v}" for k, v in sorted(p.exit_reason_counts.items()))
             lines.append(f"• exits: {reasons}")
         lines.append(
             f"• MFE {_pct(p.avg_mfe_pct)} / MAE {_pct(p.avg_mae_pct)} "
@@ -225,14 +229,20 @@ def render_telegram(digest: DailyDigest, *, mode: str = "paper") -> str:
     ]
 
     for note in digest.notes:
-        lines.append(f"<i>⚠️ {note}</i>")
+        lines.append(f"<i>⚠️ {esc(note)}</i>")
 
     lines += ["", "<i>Paper trading — er is geen live executie aangesloten.</i>"]
     return "\n".join(lines)
 
 
 def render_text(digest: DailyDigest, *, mode: str = "paper") -> str:
-    """Plain-text version for the terminal (strips the HTML tags)."""
+    """Plain-text version for the terminal: strip tags, then undo the escaping.
+
+    Order matters. Unescaping first would turn an escaped ``&lt;b&gt;`` from a token
+    symbol into a real tag that the strip step then deletes — silently hiding part of a
+    hostile symbol instead of showing it.
+    """
     import re
 
-    return re.sub(r"<[^>]+>", "", render_telegram(digest, mode=mode))
+    stripped = re.sub(r"<[^>]+>", "", render_telegram(digest, mode=mode))
+    return stripped.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")

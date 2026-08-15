@@ -183,6 +183,20 @@ class TestAlerts:
         assert dedupe_key(decision) == dedupe_key(later)
         assert dedupe_key(decision) != dedupe_key(much_later)
 
+    def test_hostile_token_symbol_cannot_inject_markup(self):
+        """Token symbols are on-chain metadata: attacker-controlled by construction."""
+        import re
+
+        hostile = '<a href="https://evil.example">CLAIM</a> & co'
+        decision = evaluate(scenarios.happy_path().model_copy(update={"symbol": hostile}))
+        message = render_telegram(decision)
+        assert "<a href=" not in message
+        assert "&lt;a href=" in message
+        allowed = {"b", "/b", "i", "/i", "code", "/code", "pre", "/pre"}
+        assert {t for t in re.findall(r"<([^>]+)>", message)} <= allowed
+        for match in re.finditer(r"&(?!amp;|lt;|gt;)", message):
+            raise AssertionError(f"unescaped & near {message[match.start():match.start()+30]!r}")
+
     def test_bar_rendering(self):
         assert len(bar(50.0)) == 10
         assert bar(0.0) == "░" * 10

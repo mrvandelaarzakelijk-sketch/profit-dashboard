@@ -11,6 +11,7 @@ what a 91 was made of.
 from __future__ import annotations
 
 from ..domain import SignalDecision, SignalState, Severity
+from .telegram import escape_html as esc
 
 BAR_FILLED = "█"
 BAR_EMPTY = "░"
@@ -50,7 +51,7 @@ def render_telegram(decision: SignalDecision, *, top_traders: int = 4) -> str:
     d = decision
     emoji = STATE_EMOJI.get(d.state, "•")
     lines = [
-        f"{emoji} <b>{d.state.value.replace('_', ' ')}</b>  —  <b>${d.symbol}</b>",
+        f"{emoji} <b>{esc(d.state.value.replace('_', ' '))}</b>  —  <b>${esc(d.symbol)}</b>",
         "",
         f"<b>Master Score: {d.master_score:.0f}/100</b>",
         "<pre>",
@@ -64,12 +65,12 @@ def render_telegram(decision: SignalDecision, *, top_traders: int = 4) -> str:
 
     if d.risk.veto:
         lines += ["", "⛔ <b>HARD VETO</b>"]
-        lines += [f"• {f.detail}" for f in d.risk.findings if f.severity is Severity.VETO]
+        lines += [f"• {esc(f.detail)}" for f in d.risk.findings if f.severity is Severity.VETO]
         return "\n".join(lines)
 
     if d.contributors:
         lines += ["", "👛 <b>Smart Money</b>"]
-        lines += [f"• {name} bought {_usd(usd)}" for name, usd in d.contributors[:top_traders]]
+        lines += [f"• {esc(name)} bought {_usd(usd)}" for name, usd in d.contributors[:top_traders]]
     lines.append(
         f"   <i>{d.confirmation.n_traders} wallets → "
         f"{d.confirmation.n_effective:.2f} independent</i>"
@@ -99,17 +100,17 @@ def render_telegram(decision: SignalDecision, *, top_traders: int = 4) -> str:
         "",
         "⏱ <b>Timing</b>",
         f"• {d.timing.smart_multiple:.2f}x first smart-money entry "
-        f"(multiplier {d.timing.multiplier:.2f}, binding: {d.timing.binding_factor})",
+        f"(multiplier {d.timing.multiplier:.2f}, binding: {esc(d.timing.binding_factor)})",
     ]
 
     soft = [f for f in d.risk.findings if f.severity is not Severity.VETO]
     if soft:
-        lines += ["", "⚠️ <b>Risk</b>"] + [f"• {finding.detail}" for finding in soft[:4]]
+        lines += ["", "⚠️ <b>Risk</b>"] + [f"• {esc(finding.detail)}" for finding in soft[:4]]
 
     if d.flags:
-        lines += ["", "🚩 <b>Flags</b>", "• " + ", ".join(d.flags)]
+        lines += ["", "🚩 <b>Flags</b>", "• " + esc(", ".join(d.flags))]
 
-    lines += ["", f"<i>{d.explanation}</i>", "", f"<code>{d.config_version}</code>"]
+    lines += ["", f"<i>{esc(d.explanation)}</i>", "", f"<code>{esc(d.config_version)}</code>"]
     return "\n".join(lines)
 
 
@@ -143,6 +144,7 @@ def render_discord(decision: SignalDecision) -> dict:
     return {
         "embeds": [
             {
+                # Discord embeds are not HTML, but the title is still untrusted text.
                 "title": f"{STATE_EMOJI.get(d.state, '•')} {d.state.value} — ${d.symbol}",
                 "description": f"**Master {d.master_score:.0f}/100**\n{d.explanation}",
                 "color": colour,

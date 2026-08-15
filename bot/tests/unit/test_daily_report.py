@@ -207,3 +207,51 @@ class TestRendering:
             store.signals.append(signal_record(f"T{i:03d}", NOW - timedelta(minutes=i)))
         message = render_telegram(build_digest(store, now=NOW))
         assert all(len(chunk) <= MAX_MESSAGE_CHARS for chunk in split_message(message))
+
+
+class TestHtmlSafety:
+    """Token symbols come from on-chain metadata, which anyone can set.
+
+    A memecoin can legitimately be deployed with the symbol `<a href="https://evil">`.
+    Interpolating that into our own alert would let the token's author put clickable
+    links into a message the reader trusts — and an unescaped `&` makes Telegram reject
+    the whole message with "can't parse entities", so the digest silently stops.
+    """
+
+    HOSTILE = '<a href="https://evil.example">FREE $$$</a> & <b>pump</b>'
+
+    def test_hostile_symbol_cannot_inject_markup(self, tmp_path):
+        store = Store(tmp_path)
+        store.signals.append(signal_record(self.HOSTILE, NOW - timedelta(hours=1)))
+        message = render_telegram(build_digest(store, now=NOW))
+        assert "<a href=" not in message
+        assert "&lt;a href=" in message
+        assert "&amp;" in message
+
+    def test_ampersand_in_our_own_copy_is_escaped(self, tmp_path):
+        """"P&L" was a real bug: a bare & is not a valid entity."""
+        store = Store(tmp_path)
+        store.signals.append(signal_record("AAA", NOW - timedelta(hours=1)))
+        store.trades.append(trade_record("AAA", NOW - timedelta(hours=1), 50.0))
+        message = render_telegram(build_digest(store, now=NOW))
+        import re
+
+        # Every & must begin a real entity.
+        for match in re.finditer(r"&(?!amp;|lt;|gt;)", message):
+            raise AssertionError(f"unescaped & at offset {match.start()}: {message[match.start():match.start()+30]!r}")
+
+    def test_only_our_own_tags_survive(self, tmp_path):
+        store = Store(tmp_path)
+        store.signals.append(signal_record(self.HOSTILE, NOW - timedelta(hours=1)))
+        message = render_telegram(build_digest(store, now=NOW))
+        import re
+
+        allowed = {"b", "/b", "i", "/i", "code", "/code", "pre", "/pre"}
+        assert {t for t in re.findall(r"<([^>]+)>", message)} <= allowed
+
+    def test_text_rendering_reveals_the_hostile_symbol(self, tmp_path):
+        """Stripping tags before unescaping — the other order would hide it."""
+        store = Store(tmp_path)
+        store.signals.append(signal_record(self.HOSTILE, NOW - timedelta(hours=1)))
+        text = render_text(build_digest(store, now=NOW))
+        assert "evil.example" in text
