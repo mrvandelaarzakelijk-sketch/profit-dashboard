@@ -27,6 +27,10 @@ waar de bot in zit.
 
 Een token is een *afzender*, geen *bestemming*. Voor de groep heb je ook de `chat_id` nodig.
 
+> **Een invite-link (`t.me/+…`) is géén bestemming.** Je kunt er niet naartoe sturen, en de
+> Bot API kent geen methode om via zo'n link een groep binnen te komen — dat kan alleen een
+> mens. Een admin moet de bot handmatig toevoegen; daarna vind je de `chat_id` hieronder.
+
 1. Voeg je bot toe aan de groep.
 2. Post één willekeurig bericht in die groep.
 3. Draai:
@@ -183,6 +187,7 @@ dan is er iets stuk.
 | bericht komt niet aan, geen fout | verkeerde chat — groepen zijn negatief, `-100…` voor supergroups |
 | `can't parse entities` | HTML-fout in de tekst; `split_message()` splitst op regelgrenzen om dit te voorkomen |
 | 429 | rate limit; de client respecteert `retry_after` automatisch |
+| `group chat was upgraded to a supergroup chat` | de groep is een supergroup geworden en de `chat_id` is veranderd — de client volgt de nieuwe id automatisch en print hem; **werk je secret bij**, de oude id werkt nooit meer |
 | workflow draait niet | scheduled workflows worden op GitHub uitgezet na 60 dagen zonder repo-activiteit |
 
 Die laatste is de meest voorkomende stille storing: **GitHub schakelt scheduled workflows

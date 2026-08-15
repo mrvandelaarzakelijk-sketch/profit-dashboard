@@ -268,6 +268,17 @@ def _telegram_client(chat_id: str | None = None):
     return TelegramClient(bot_token=token, chat_id=chat)
 
 
+def _warn_if_migrated(client) -> None:
+    """A supergroup upgrade changes the chat_id permanently. Say so loudly — the old id
+    will never work again, and a silently failing daily job is the worst kind."""
+    if getattr(client, "migrated_chat_id", None):
+        print(
+            "\n  !! The group was upgraded to a supergroup and its chat_id changed.\n"
+            f"  !! Update TELEGRAM_CHAT_ID (and the GitHub secret) to: {client.migrated_chat_id}\n"
+            "  !! The old id will not work again."
+        )
+
+
 def cmd_daily(args: argparse.Namespace) -> int:
     """Build the daily digest and optionally push it to Telegram."""
     from datetime import timedelta
@@ -300,6 +311,7 @@ def cmd_daily(args: argparse.Namespace) -> int:
         print(f"delivery failed: {exc}")
         return 1
     print(f"digest delivered ({digest.n_signals} signals, {len(digest.trades)} trades)")
+    _warn_if_migrated(client)
     return 0
 
 
@@ -352,7 +364,8 @@ def cmd_telegram_test(args: argparse.Namespace) -> int:
     except TelegramError as exc:
         print(f"delivery failed: {exc}")
         return 1
-    print("test message delivered")
+    print(f"test message delivered to chat {client.chat_id}")
+    _warn_if_migrated(client)
     return 0
 
 

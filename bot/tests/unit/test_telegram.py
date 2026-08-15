@@ -130,6 +130,45 @@ class TestRetries:
         assert len(c.transport.calls) == 1
 
 
+class TestSupergroupMigration:
+    """A plain group becomes a supergroup on its own — adding members, enabling history
+    for new members, promoting an admin. The chat_id changes and every later send 400s.
+    Without handling this the daily digest just stops, and nothing says why."""
+
+    MIGRATION = (
+        400,
+        {
+            "ok": False,
+            "description": "Bad Request: group chat was upgraded to a supergroup chat",
+            "parameters": {"migrate_to_chat_id": -1009876543210},
+        },
+    )
+
+    def test_follows_the_migration_and_delivers(self):
+        c = client([self.MIGRATION, (200, {"ok": True, "result": {"message_id": 1}})])
+        c.send_message("hi")
+        assert c.transport.calls[0]["payload"]["chat_id"] == "-1001234567890"
+        assert c.transport.calls[1]["payload"]["chat_id"] == "-1009876543210"
+
+    def test_records_the_new_id_so_the_caller_can_persist_it(self):
+        c = client([self.MIGRATION, (200, {"ok": True, "result": {}})])
+        assert c.migrated_chat_id is None
+        c.send_message("hi")
+        assert c.migrated_chat_id == "-1009876543210"
+        assert c.chat_id == "-1009876543210"
+
+    def test_subsequent_sends_use_the_new_id_directly(self):
+        c = client([self.MIGRATION] + [(200, {"ok": True, "result": {}})] * 2)
+        c.send_message("first")
+        c.send_message("second")
+        assert c.transport.calls[-1]["payload"]["chat_id"] == "-1009876543210"
+
+    def test_an_ordinary_400_still_raises(self):
+        c = client([(400, {"ok": False, "description": "chat not found"})])
+        with pytest.raises(TelegramError):
+            c.send_message("hi")
+
+
 class TestPayload:
     def test_sends_expected_fields(self):
         c = client([(200, {"ok": True, "result": {}})])

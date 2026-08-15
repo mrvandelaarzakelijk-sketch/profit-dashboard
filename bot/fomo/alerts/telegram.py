@@ -100,15 +100,18 @@ class TelegramClient:
     max_retries: int = 4
     transport: Transport = field(default=_urllib_transport, repr=False)
     sleep: Callable[[float], None] = field(default=time.sleep, repr=False)
+    migrated_chat_id: str | None = field(default=None, init=False)
+    """Set when Telegram reports the group was upgraded to a supergroup. The caller
+    should persist this: the old id will never work again."""
 
     def __repr__(self) -> str:  # never let the token into a traceback
         return f"TelegramClient(chat_id={self.chat_id!r}, bot_token='<redacted>')"
 
     def _call(self, method: str, payload: dict) -> dict:
         url = f"{API_ROOT}/bot{self.bot_token}/{method}"
-        body = json.dumps(payload).encode()
 
         for attempt in range(self.max_retries):
+            body = json.dumps(payload).encode()
             status, raw = self.transport(url, body, self.timeout)
             try:
                 data = json.loads(raw or b"{}")
@@ -118,13 +121,27 @@ class TelegramClient:
             if status == 200 and data.get("ok"):
                 return data.get("result", {})
 
+            parameters = data.get("parameters", {})
+
             # 429: Telegram tells us exactly how long to wait. Respect it.
             if status == 429:
-                wait = float(data.get("parameters", {}).get("retry_after", 2**attempt))
+                wait = float(parameters.get("retry_after", 2**attempt))
                 self.sleep(min(wait, 60.0))
                 continue
             if status >= 500:
                 self.sleep(2**attempt)
+                continue
+
+            # A plain group silently becomes a supergroup the moment someone enables
+            # history-for-new-members, adds too many people, or promotes an admin. The
+            # chat_id changes when that happens and every later send fails with a 400.
+            # Telegram hands us the new id, so follow it, remember it, and surface it —
+            # otherwise the daily digest just stops arriving and nothing says why.
+            migrated_to = parameters.get("migrate_to_chat_id")
+            if migrated_to is not None:
+                self.migrated_chat_id = str(migrated_to)
+                self.chat_id = self.migrated_chat_id
+                payload["chat_id"] = self.chat_id
                 continue
 
             # 4xx other than 429 is a request problem; retrying will not fix it.
