@@ -180,12 +180,18 @@ def _synthetic_events() -> list[ReplayEvent]:
             update={"address": f"Token{i:02d}", "symbol": f"TKN{i:02d}"}
         )
         entry_at = T0 + timedelta(hours=i)
-        events.append(ReplayEvent(observed_at=entry_at, snapshot=base))
+        # The snapshot's observed_at must track the replay clock. If it does not, every
+        # decision carries the same timestamp and anything downstream that groups by
+        # time — the daily digest, attribution, walk-forward — silently reads garbage.
+        events.append(
+            ReplayEvent(observed_at=entry_at, snapshot=base.model_copy(update={"observed_at": entry_at}))
+        )
 
         # Winners: run to +90%, take the profit tranche, then give back enough to
         # trigger the trailing exit. Losers: straight through the stop.
         path = [1.35, 1.90, 1.35] if wins else [0.85, 0.60, 0.45]
         for step, multiple in enumerate(path, start=1):
+            at = entry_at + timedelta(minutes=15 * step)
             market = healthy_market(
                 price_usd=0.00041 * multiple,
                 price_15m_ago=0.00041 * multiple,
@@ -193,8 +199,8 @@ def _synthetic_events() -> list[ReplayEvent]:
             )
             events.append(
                 ReplayEvent(
-                    observed_at=entry_at + timedelta(minutes=15 * step),
-                    snapshot=base.model_copy(update={"market": market}),
+                    observed_at=at,
+                    snapshot=base.model_copy(update={"market": market, "observed_at": at}),
                 )
             )
     return events
@@ -245,6 +251,176 @@ def cmd_sweep(_: argparse.Namespace) -> int:
     return 0
 
 
+def _telegram_client(chat_id: str | None = None):
+    """Build a client from the environment. Never prints or logs the token."""
+    import os
+
+    from .alerts.telegram import TelegramClient
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat = (chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")).strip()
+    if not token:
+        print("TELEGRAM_BOT_TOKEN is not set. Put it in a secret store, never in the repo.")
+        return None
+    if not chat:
+        print("TELEGRAM_CHAT_ID is not set. Run `python -m fomo.cli telegram-chats` to find it.")
+        return None
+    return TelegramClient(bot_token=token, chat_id=chat)
+
+
+def cmd_daily(args: argparse.Namespace) -> int:
+    """Build the daily digest and optionally push it to Telegram."""
+    from datetime import timedelta
+
+    from .reports.daily import build_digest, render_telegram, render_text
+    from .store.jsonl import Store
+
+    store = Store(args.data_dir)
+    digest = build_digest(
+        store,
+        window=timedelta(hours=args.window_hours),
+        starting_equity=args.starting_equity,
+    )
+
+    if not args.send:
+        print(render_text(digest))
+        if not digest.ingestion_live:
+            print("\n(dry run — use --send to push to Telegram)")
+        return 0
+
+    client = _telegram_client(args.chat_id)
+    if client is None:
+        return 2
+
+    from .alerts.telegram import TelegramError
+
+    try:
+        client.send_message(render_telegram(digest))
+    except TelegramError as exc:
+        print(f"delivery failed: {exc}")
+        return 1
+    print(f"digest delivered ({digest.n_signals} signals, {len(digest.trades)} trades)")
+    return 0
+
+
+def cmd_telegram_chats(_: argparse.Namespace) -> int:
+    """List chats the bot can see, so you can find the group's chat_id."""
+    import os
+
+    from .alerts.telegram import TelegramClient, TelegramError
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        print("TELEGRAM_BOT_TOKEN is not set.")
+        return 2
+
+    client = TelegramClient(bot_token=token, chat_id="")
+    try:
+        me = client.get_me()
+        print(f"bot: @{me.get('username', '?')} (id {me.get('id', '?')})\n")
+        chats = client.discover_chats()
+    except TelegramError as exc:
+        print(f"failed: {exc}")
+        return 1
+
+    if not chats:
+        print(
+            "No chats found. Add the bot to the group, post any message there, then rerun.\n"
+            "getUpdates only returns recent updates and only works with no webhook set."
+        )
+        return 1
+
+    print(f"{'chat_id':>16}  {'type':<12} title")
+    print("-" * 60)
+    for chat in chats:
+        print(f"{chat['chat_id']!s:>16}  {chat['type']:<12} {chat['title']}")
+    print("\nGroups have a negative id; supergroups start with -100.")
+    return 0
+
+
+def cmd_telegram_test(args: argparse.Namespace) -> int:
+    from .alerts.telegram import TelegramError
+
+    client = _telegram_client(args.chat_id)
+    if client is None:
+        return 2
+    try:
+        client.send_message(
+            "✅ <b>FOMO bot connected</b>\n"
+            "<i>This is a test message. Daily digests will arrive here.</i>"
+        )
+    except TelegramError as exc:
+        print(f"delivery failed: {exc}")
+        return 1
+    print("test message delivered")
+    return 0
+
+
+def cmd_seed_demo(args: argparse.Namespace) -> int:
+    """Write a synthetic day into the store so the digest can be verified end to end.
+
+    This exists so you can prove the delivery pipeline works before any real ingestion
+    is built. It writes clearly-labelled demo data into --data-dir.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from .backtest.harness import run
+    from .store.jsonl import Store
+
+    store = Store(args.data_dir)
+    result = run(_synthetic_events(), starting_equity=10_000.0)
+
+    # The scenarios are anchored to a fixed T0 so tests stay deterministic. Shift the
+    # whole run so the last event lands 30 minutes ago — otherwise the 24h digest window
+    # would not contain any of it and the demo would look broken.
+    latest = max(d.observed_at for d in result.decisions)
+    shift = (datetime.now(UTC) - timedelta(minutes=30)) - latest
+
+    for decision in result.decisions:
+        store.signals.append(
+            {
+                "observed_at": (decision.observed_at + shift).isoformat(),
+                "symbol": decision.symbol,
+                "token_address": decision.token_address,
+                "state": decision.state.value,
+                "master_score": decision.master_score,
+                "n_effective": decision.confirmation.n_effective,
+                "veto_reasons": list(decision.risk.veto_reasons),
+                "flags": list(decision.flags),
+                "config_version": decision.config_version,
+            }
+        )
+    for trade in result.trades:
+        record = {
+            "opened_at": (trade.opened_at + shift).isoformat(),
+            "closed_at": (trade.closed_at + shift).isoformat(),
+            "token_address": trade.token_address,
+            "symbol": trade.symbol,
+            "entry_price_effective": trade.entry_price_effective,
+            "exit_price_effective": trade.exit_price_effective,
+            "size_usd": trade.size_usd,
+            "gross_pnl_usd": trade.gross_pnl_usd,
+            "fees_usd": trade.fees_usd,
+            "slippage_usd": trade.slippage_usd,
+            "net_pnl_usd": trade.net_pnl_usd,
+            "return_pct": trade.return_pct,
+            "hold_seconds": trade.hold_seconds,
+            "exit_reason": str(trade.exit_reason),
+            "max_favorable_excursion": trade.max_favorable_excursion,
+            "max_adverse_excursion": trade.max_adverse_excursion,
+            "master_at_entry": trade.master_at_entry,
+            "neff_at_entry": trade.neff_at_entry,
+        }
+        store.trades.append(record)
+    store.record_equity(result.final_equity)
+
+    print(
+        f"seeded {len(result.decisions)} signals and {len(result.trades)} trades "
+        f"into {store.data_dir}/\nrun `python -m fomo.cli daily` to see the digest"
+    )
+    return 0
+
+
 def cmd_config(_: argparse.Namespace) -> int:
     settings = load_settings()
     print(f"config version: {settings.version}")
@@ -271,6 +447,26 @@ def main(argv: list[str] | None = None) -> int:
     alert = sub.add_parser("alert", help="render the Telegram alert for a scenario")
     alert.add_argument("scenario", nargs="?", default="happy_path")
     alert.set_defaults(fn=cmd_alert)
+
+    daily = sub.add_parser("daily", help="build the daily digest (add --send to push to Telegram)")
+    daily.add_argument("--send", action="store_true", help="deliver to Telegram instead of printing")
+    daily.add_argument("--window-hours", type=int, default=24)
+    daily.add_argument("--data-dir", default=None)
+    daily.add_argument("--chat-id", default=None, help="overrides TELEGRAM_CHAT_ID")
+    daily.add_argument("--starting-equity", type=float, default=10_000.0)
+    daily.set_defaults(fn=cmd_daily)
+
+    sub.add_parser("telegram-chats", help="find the chat_id of your group").set_defaults(
+        fn=cmd_telegram_chats
+    )
+
+    test = sub.add_parser("telegram-test", help="send one test message")
+    test.add_argument("--chat-id", default=None)
+    test.set_defaults(fn=cmd_telegram_test)
+
+    seed = sub.add_parser("seed-demo", help="write synthetic data so the digest can be verified")
+    seed.add_argument("--data-dir", default=None)
+    seed.set_defaults(fn=cmd_seed_demo)
 
     args = parser.parse_args(argv)
     return args.fn(args)

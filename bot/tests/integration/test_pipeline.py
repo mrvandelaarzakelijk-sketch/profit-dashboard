@@ -91,9 +91,14 @@ class TestBacktest:
                 update={"address": f"Token{i:02d}", "symbol": f"T{i:02d}"}
             )
             start = T0 + timedelta(hours=i)
-            events.append(ReplayEvent(observed_at=start, snapshot=base))
+            events.append(
+                ReplayEvent(
+                    observed_at=start, snapshot=base.model_copy(update={"observed_at": start})
+                )
+            )
             path = [1.4, 1.9, 1.3] if i % 2 == 0 else [0.8, 0.55]
             for step, multiple in enumerate(path, start=1):
+                at = start + timedelta(minutes=15 * step)
                 market = healthy_market(
                     price_usd=0.00041 * multiple,
                     price_15m_ago=0.00041 * multiple,
@@ -101,11 +106,20 @@ class TestBacktest:
                 )
                 events.append(
                     ReplayEvent(
-                        observed_at=start + timedelta(minutes=15 * step),
-                        snapshot=base.model_copy(update={"market": market}),
+                        observed_at=at,
+                        snapshot=base.model_copy(update={"market": market, "observed_at": at}),
                     )
                 )
         return events
+
+    def test_clock_mismatch_is_rejected(self):
+        """The guard that would have caught the bug where every decision shared a
+        timestamp — silent, and it corrupts everything that groups by time."""
+        base = scenarios.happy_path()
+        bad = [ReplayEvent(observed_at=T0 + timedelta(hours=3), snapshot=base)]
+        with pytest.raises(ValueError, match="clock mismatch"):
+            run(bad)
+        assert run(bad, strict_clock=False).n_events == 1
 
     def test_backtest_produces_trades_and_metrics(self):
         result = run(self._events(), starting_equity=20_000.0)

@@ -66,7 +66,16 @@ def run(
     starting_equity: float = 10_000.0,
     settings: Settings | None = None,
     record_decisions: bool = True,
+    strict_clock: bool = True,
 ) -> BacktestResult:
+    """Replay ``events`` through the engine and a paper portfolio.
+
+    ``strict_clock`` enforces that each snapshot's ``observed_at`` matches its event's.
+    They are the same instant by definition in a point-in-time replay, and letting them
+    drift apart is a quiet, expensive bug: every decision ends up stamped with the same
+    time, and anything that groups by time downstream — daily reports, attribution,
+    walk-forward windows — reads nonsense while looking perfectly healthy.
+    """
     cfg = settings or get_settings()
     broker = PaperBroker(settings=cfg, starting_equity_usd=starting_equity)
 
@@ -78,6 +87,13 @@ def run(
     for event in _ordered(events):
         n_events += 1
         snapshot = event.snapshot
+        if strict_clock and snapshot.observed_at != event.observed_at:
+            raise ValueError(
+                f"clock mismatch for {snapshot.address}: event observed_at "
+                f"{event.observed_at.isoformat()} but snapshot says "
+                f"{snapshot.observed_at.isoformat()}. In a point-in-time replay these "
+                f"are the same instant; pass strict_clock=False only if you know why."
+            )
         decision = evaluate(snapshot, cfg)
         if record_decisions:
             decisions.append(decision)

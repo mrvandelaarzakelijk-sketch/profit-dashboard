@@ -78,10 +78,33 @@ Drie dingen om op te letten:
   traders.
 - De vier `0.00`-scores zijn harde veto's. Die zijn niet "heel laag" — ze zijn absorberend.
 
+## Dagelijkse Telegram-push
+
+Eén bericht per dag naar je groep, met signalen, veto-tellingen en paper-performance.
+
+```bash
+export TELEGRAM_BOT_TOKEN='...'          # nooit in de repo — zie docs/06
+python -m fomo.cli telegram-chats        # vind de chat_id van je groep
+export TELEGRAM_CHAT_ID='-1001234567890'
+python -m fomo.cli telegram-test         # één testbericht
+python -m fomo.cli seed-demo             # synthetische dag, om te verifiëren
+python -m fomo.cli daily                 # digest in de terminal
+python -m fomo.cli daily --send          # echt versturen
+```
+
+Dagelijks draaien gaat via `.github/workflows/daily-telegram.yml` (cron `0 6 * * *`,
+secrets `TELEGRAM_BOT_TOKEN` en `TELEGRAM_CHAT_ID`). De workflow draait éérst de
+testsuite: is de engine stuk, dan gaat er geen digest uit — een bericht met verkeerde
+cijfers is schadelijker dan geen bericht.
+
+Zolang de ingest-laag niet draait, zegt het bericht dat letterlijk ("geen signalen
+vandaag, fase 1–3 nog niet live") in plaats van een leeg dashboard te tonen dat op een
+rustige markt lijkt. Volledige handleiding: [`docs/06-daily-digest.md`](docs/06-daily-digest.md).
+
 ## Tests
 
 ```bash
-pytest                       # 170 tests, ~3 s
+pytest                       # 208 tests, ~4 s
 pytest -m "not contract"     # CI-standaard
 pytest tests/property -q     # alleen de invarianten
 pytest --cov=fomo --cov-report=term-missing
@@ -114,7 +137,9 @@ bot/
 │   ├── signals/       timing (anti-FOMO), false positives, master score
 │   ├── trading/       paper engine + performance analytics
 │   ├── backtest/      event-replay, sweep, walk-forward
-│   ├── alerts/        Telegram/Discord rendering
+│   ├── alerts/        Telegram-transport + Discord rendering
+│   ├── reports/       dagelijkse digest
+│   ├── store/         append-only JSONL (fase-1 stand-in voor Postgres)
 │   ├── adapters/      externe wereld + deterministische scenario's
 │   └── cli.py
 └── tests/             unit · property · integration
@@ -136,6 +161,7 @@ beslissing reproduceerbaar.
 | [`docs/03-apis.md`](docs/03-apis.md) | Providerkeuzes per rol + verificatie-checklist |
 | [`docs/04-scoring-and-risk.md`](docs/04-scoring-and-risk.md) | Elke formule met motivering: trader score, social velocity, N_eff, risk, signalen, ML |
 | [`docs/05-roadmap-and-testing.md`](docs/05-roadmap-and-testing.md) | MVP-fasen 1–10, backtest-valkuilen, teststrategie |
+| [`docs/06-daily-digest.md`](docs/06-daily-digest.md) | Dagelijkse Telegram-push: token-hygiëne, chat_id vinden, cron, storingen |
 
 ---
 
@@ -145,7 +171,8 @@ beslissing reproduceerbaar.
 trader scoring · cluster-correctie (`N_eff`) · social velocity/diversiteit · market- en
 liquiditeitsscore · risk engine · anti-FOMO timing · false-positive-detectie · master score ·
 signaaltoestanden · paper trading met fees/slippage/exits · performance analytics ·
-backtest-harness met sweep en walk-forward · alert-rendering.
+backtest-harness met sweep en walk-forward · alert-rendering · **dagelijkse Telegram-push
+met scheduler**.
 
 **Nog te bouwen (fase 1, 2, 3, 5, 9):**
 de I/O-laag — chain-ingest, social-ingest, marktdata-adapters, LLM-classificatie, database,
