@@ -1,0 +1,126 @@
+# Risk thresholds and signal cut-offs — see docs/04 §7 and §8.
+#
+# Everything here is a *policy* decision, deliberately separated from the scoring
+# weights: you retune weights to describe the world better, you retune thresholds
+# to change how much risk you are willing to take.
+
+version = "v1"
+
+# ── Hard vetoes (docs/04 §7.1) — MASTER = 0, SIGNAL = AVOID ──────────────────
+[veto]
+require_mint_authority_revoked   = true
+require_freeze_authority_revoked = true
+lp_secured_min_burn_pct          = 90.0    # burned >= 90% OR locked counts as secured
+max_sell_tax_bps                 = 1000    # 10%
+allow_unknown_transfer_hook      = false
+max_top10_holder_pct             = 45.0    # excluding LP and burn addresses
+max_creator_holding_pct          = 15.0
+min_liquidity_usd                = 15000.0
+max_creator_prior_rugs           = 1       # >= 1 previous LP-pull => veto
+max_provider_disagreement_pct    = 25.0
+max_security_staleness_seconds   = 300
+
+# ── Soft penalties (docs/04 §7.2) — reduce R_soft, floored at 0.30 ───────────
+[soft]
+floor = 0.30
+
+top10_pct_from      = 25.0
+top10_pct_to        = 45.0
+top10_penalty_max   = 0.25
+
+bundled_pct_from    = 15.0
+bundled_pct_to      = 35.0
+bundled_penalty_max = 0.20
+
+liq_mcap_ratio_min  = 0.03
+liq_mcap_penalty_max= 0.20
+
+fdv_mcap_ratio_max  = 3.0
+fdv_penalty_max     = 0.15
+
+vol_liq_ratio_max   = 20.0
+wash_penalty_max    = 0.20
+
+min_token_age_seconds = 180
+young_penalty         = 0.10
+
+buy_tax_bps_from    = 100
+buy_tax_bps_to      = 500
+buy_tax_penalty_max = 0.10
+
+lp_unlock_soon_seconds = 604800   # 7 days
+lp_unlock_soon_penalty = 0.15
+
+# ── Liquidity / execution (docs/04 §5.3) ─────────────────────────────────────
+[liquidity]
+max_roundtrip_cost_pct = 6.0      # above this, the trade is not worth doing
+dex_fee_pct            = 0.25
+priority_fee_usd       = 0.50
+liq_floor_usd          = 15000.0
+liq_good_usd           = 400000.0
+
+# ── Signal thresholds (docs/04 §8.1) ─────────────────────────────────────────
+# Each state needs BOTH the score and every structural condition.
+[signal.avoid]
+master_below = 25.0
+
+[signal.watch]
+master_min = 40.0
+
+[signal.early_watch]
+master_min       = 55.0
+neff_min         = 1.0
+timing_min       = 0.60
+liquidity_min    = 40.0
+max_token_age_seconds = 86400
+
+[signal.potential_entry]
+master_min    = 70.0
+neff_min      = 1.8
+timing_min    = 0.50
+liquidity_min = 60.0
+market_min    = 50.0
+soft_risk_min = 0.70
+
+[signal.strong_entry]
+master_min    = 82.0
+neff_min      = 2.5
+timing_min    = 0.60
+liquidity_min = 70.0
+market_min    = 60.0
+soft_risk_min = 0.85
+social_min    = 55.0
+
+# ── False-positive detection (docs/04 §9) ────────────────────────────────────
+[false_positive]
+social_velocity_high        = 2.5    # z-score
+unique_buyers_low_15m       = 25
+weak_trader_neff_max        = 1.2
+weak_trader_quality_max     = 55.0
+cluster_illusion_min_wallets= 3
+cluster_illusion_neff_max   = 1.5
+volume_liquidity_ratio_max  = 20.0
+duplicate_text_share_max    = 0.40
+wash_trade_share_max        = 0.60
+new_account_share_max       = 0.50
+provider_disagreement_pct   = 25.0
+
+# ── Position sizing & exits (docs/04 §8.3) ───────────────────────────────────
+[position]
+max_position_pct_of_equity = 5.0
+max_concurrent_positions   = 8
+max_daily_loss_pct         = 15.0
+
+[exit]
+stop_loss_pct        = 35.0
+take_profit_levels   = [60.0, 150.0]
+take_profit_fractions= [0.3333, 0.3333]
+trailing_pct         = 25.0
+trailing_tight_pct   = 15.0        # applies once up more than trailing_tighten_at_pct
+trailing_tighten_at_pct = 150.0
+max_hold_seconds     = 21600       # 6 hours
+invalidate_master_below = 35.0
+invalidate_neff_below   = 1.0
+invalidate_social_drop_pct = 60.0
+smart_exit_share     = 0.50        # >= 50% of confirming N_eff sold
+emergency_liquidity_drop_pct = 40.0

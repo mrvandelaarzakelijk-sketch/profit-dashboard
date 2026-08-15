@@ -1,0 +1,83 @@
+name: Daily Telegram digest
+
+# Runs once a day and pushes the FOMO digest to the configured Telegram group.
+#
+# 06:00 UTC = 08:00 in the Netherlands during summer time (CEST), 07:00 during winter
+# (CET). GitHub Actions cron is UTC-only and does not follow DST, so pick whichever hour
+# matters more to you and change the line below. Scheduled runs on GitHub are also
+# best-effort: they can start several minutes late when the platform is busy.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Render the digest in the log without sending it"
+        type: boolean
+        default: false
+      seed_demo:
+        description: "Seed synthetic data first, to verify delivery end to end"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-telegram
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install --quiet -e ".[dev]"
+
+      # If the decision core is broken, do not send a digest built by it.
+      - name: Verify the engine before trusting its output
+        run: pytest -q -m "not contract"
+
+      # State lives outside the runner: a fresh container has no history. The cache is a
+      # stopgap so consecutive runs can see each other's data. Once real ingestion runs
+      # on a persistent host, point FOMO_DATA_DIR at that host's store (or read from
+      # Postgres) instead — see bot/docs/06-daily-digest.md.
+      - name: Restore digest state
+        uses: actions/cache/restore@v4
+        with:
+          path: bot/data
+          key: fomo-state-${{ github.run_id }}
+          restore-keys: fomo-state-
+
+      - name: Seed demo data
+        if: inputs.seed_demo
+        run: python -m fomo.cli seed-demo
+
+      - name: Render digest (dry run)
+        if: inputs.dry_run
+        run: python -m fomo.cli daily
+
+      - name: Send digest
+        if: ${{ !inputs.dry_run }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m fomo.cli daily --send
+
+      - name: Save digest state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: bot/data
+          key: fomo-state-${{ github.run_id }}
