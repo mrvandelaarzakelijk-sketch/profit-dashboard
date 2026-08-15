@@ -1,0 +1,92 @@
+# Scoring weights — see docs/04-scoring-and-risk.md
+#
+# Every coefficient here has a rationale in the docs. Change them here, never in code.
+# Bump `version` on every change: it is written into every stored signal so that scores
+# from different weight generations stay comparable (docs/02, `weights_version`).
+
+version = "v1"
+
+# ── Trader score (docs/04 §2) ────────────────────────────────────────────────
+# The bias is set to -(sum of weights)/2 so that a trader whose components are all
+# 0.5 lands on exactly 50/100 ("average"). Keep that relation when retuning.
+[trader]
+bias            = -2.90   # = -(1.6+1.4+0.9+1.1+0.8)/2
+w_perf          =  1.6    # risk-adjusted return dominates: it is the hardest to fake
+w_winrate       =  1.4
+w_consistency   =  0.9
+w_early         =  1.1    # early entry is the edge we are actually trying to copy
+w_exit_quality  =  0.8
+
+k_ir            =  2.0    # IR -> probability scale; IR 0.5 maps to sigma(1.0)=0.73
+prior_alpha     =  2.0    # Beta prior, mean 0.4, strength 5 (docs/04 §2.1b)
+prior_beta      =  3.0
+shrink_k        = 10.0    # n/(n+k): 10 trades = halfway from prior to own data
+
+penalty_bot         = 0.70
+penalty_churn       = 0.40
+penalty_suspicious  = 0.60
+churn_k             = 20.0   # trades/day saturation half-point
+
+entry_mcap_lo   =    30000.0   # $30k mcap = maximally early
+entry_mcap_hi   =  3000000.0
+entry_age_lo    =      300.0   # 5 minutes
+entry_age_hi    =    86400.0   # 24 hours
+
+reliability_high_n     = 40
+reliability_high_days  = 30
+reliability_medium_n   = 15
+reliability_low_n      = 5
+
+# ── Smart money (docs/04 §5.1) ───────────────────────────────────────────────
+[smart_money]
+bias        = -2.10
+c_neff      =  1.40
+c_quality   =  1.30
+c_usd       =  0.90
+c_conviction=  0.80
+c_early     =  0.90
+c_sell      =  1.60   # selling is weighted heavier than buying, on purpose
+k_neff      =  1.50   # sat(N_eff-1, 1.5): 2 independent traders -> 0.40
+k_usd       = 25000.0
+k_conviction=  0.10   # 10% of a wallet is high conviction
+age_lo      =   300.0
+age_hi      = 86400.0
+
+# ── Social momentum (docs/04 §3.5) ───────────────────────────────────────────
+[social]
+bias        = -2.40
+a_velocity  =  1.50
+a_diversity =  1.30   # diversity is what kills bot swarms; weight it high
+a_accounts  =  1.10
+a_engagement=  0.60
+a_sentiment =  0.50
+k_velocity  =  3.0    # z-score saturation
+k_accounts  = 15.0    # 15 effective accounts = half credit
+
+# ── Market momentum (docs/04 §5.2) ───────────────────────────────────────────
+[market]
+bias          = -1.40
+m_volume      =  1.00
+m_buyer_ratio =  0.90
+m_buyer_growth=  1.10
+m_holder_growth=  0.70
+k_volume      =  3.0   # volume/liquidity turnover
+k_buyer_growth= 40.0
+k_holder_growth= 30.0
+
+# ── Master score (docs/04 §5.5) ──────────────────────────────────────────────
+[master]
+bias    = -0.40
+k_smart =  1.30
+k_social=  0.95
+k_market=  0.70
+k_liquidity = 0.55
+k_confirmation = 0.80
+k_neff  =  1.50
+
+# ── Timing / anti-FOMO (docs/04 §6) ──────────────────────────────────────────
+[timing]
+k_smart_multiple = 1.00   # +100% above first smart entry -> factor 0.50
+k_runup_15m      = 0.80
+k_parabolic      = 0.35   # 35% above the 20-period EMA -> factor 0.50
+floor            = 0.15   # never zero: late is demoted, not forbidden
