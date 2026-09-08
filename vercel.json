@@ -3,6 +3,9 @@
   "functions": {
     "api/stats.js": {
       "maxDuration": 30
+    },
+    "api/scrape.js": {
+      "maxDuration": 30
     }
   }
 }

@@ -120,6 +120,50 @@
   .nav a.on{color:var(--accent);}
   .nav .g{font-size:19px;}
 
+  /* Inkoop / scraper */
+  .scrape-box{background:#000;border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px;}
+  .scrape-box .lbl{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;
+    letter-spacing:.6px;margin-bottom:8px;}
+  .scrape-form{display:flex;gap:8px;}
+  .scrape-form input{flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line);
+    color:var(--txt);border-radius:10px;padding:11px 12px;font-size:14px;font-family:var(--font);}
+  .scrape-form input:focus{outline:none;border-color:var(--accent);}
+  .btn{background:var(--accent);color:#04121a;border:none;border-radius:10px;padding:10px 16px;
+    font-size:13px;font-weight:700;font-family:var(--font);white-space:nowrap;transition:.15s;}
+  .scrape-form .btn{padding:0 16px;}
+  .btn:active{transform:scale(.96);}
+  .btn:disabled{opacity:.5;}
+  .btn.ghost{background:var(--surface);color:var(--muted);border:1px solid var(--line);padding:8px 12px;font-size:12px;}
+  .scrape-msg{font-size:12px;color:var(--amber);margin-top:8px;min-height:16px;font-weight:600;}
+  .scrape-msg.ok{color:var(--green);}
+  .scrape-sites{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
+  .scrape-sites span{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:3px 8px;}
+  .prod{display:flex;gap:12px;align-items:flex-start;padding:12px;background:#000;
+    border:1px solid var(--line);border-radius:14px;margin-bottom:8px;position:relative;}
+  .prod-img{width:64px;height:64px;border-radius:10px;object-fit:cover;background:var(--surface-2);flex:0 0 auto;}
+  .prod-body{flex:1;min-width:0;padding-right:26px;}
+  .prod-meta{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;
+    font-weight:600;margin-bottom:3px;}
+  .prod-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    font-size:13px;font-weight:600;color:var(--txt);text-decoration:none;line-height:1.3;}
+  .prod-price{font-size:13px;margin-top:6px;color:var(--muted);}
+  .prod-price b{color:var(--green);font-size:16px;font-weight:800;margin-left:4px;}
+  .prod-orig{font-size:12px;color:var(--dim);margin-left:6px;}
+  .prod-calc{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .prod-calc label{font-size:11px;color:var(--dim);font-weight:600;}
+  .prod-calc input{width:84px;background:var(--surface-2);border:1px solid var(--line);color:var(--txt);
+    border-radius:8px;padding:7px 8px;font-size:13px;font-family:var(--font);}
+  .prod-calc input:focus{outline:none;border-color:var(--accent);}
+  .prod-marge{font-size:12px;font-weight:700;}
+  .prod .x{position:absolute;top:8px;right:8px;width:26px;height:26px;border-radius:8px;
+    background:var(--surface);border:1px solid var(--line);color:var(--dim);font-size:12px;
+    display:grid;place-items:center;}
+  .prod-actions{display:flex;gap:8px;margin-top:10px;}
+  .list-head{display:flex;align-items:center;justify-content:space-between;margin:20px 4px 10px;}
+  .list-head .section-lbl{margin:0;}
+  .empty{font-size:13px;color:var(--dim);padding:16px;text-align:center;line-height:1.5;
+    border:1px dashed var(--line);border-radius:14px;}
+
   .fade{animation:f .3s ease;}
   @keyframes f{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 
@@ -163,7 +207,7 @@
       <h1 id="storeTitle">Alle stores</h1>
       <div class="date" id="dateLbl">Vandaag · 20 jul</div>
     </div>
-    <div class="refresh" onclick="render(true)">↻</div>
+    <div class="refresh" onclick="refreshView()">↻</div>
   </div>
 
   <div class="periods" id="periods"></div>
@@ -181,10 +225,30 @@
   <div class="stores" id="storeTabs"></div>
 
   <div id="content"></div>
+
+  <div id="inkoop" style="display:none;">
+    <div class="scrape-box">
+      <div class="lbl">Productlink van leverancier</div>
+      <div class="scrape-form">
+        <input type="url" id="urlInput" placeholder="https://www.temu.com/… of https://detail.1688.com/…"
+          autocomplete="off" onkeydown="if(event.key==='Enter')scrapeProduct()">
+        <button class="btn" id="scrapeBtn" onclick="scrapeProduct()">Ophalen</button>
+      </div>
+      <div class="scrape-msg" id="scrapeMsg"></div>
+      <div class="scrape-sites"><span>Temu</span><span>1688</span><span>AliExpress</span><span>Alibaba</span><span>andere webshops</span></div>
+    </div>
+    <div id="scrapeResult"></div>
+    <div class="list-head">
+      <div class="section-lbl">Opgeslagen producten</div>
+      <button class="btn ghost" id="refreshAllBtn" onclick="refreshAll()" style="display:none;">↻ Prijzen vernieuwen</button>
+    </div>
+    <div id="prodList"></div>
+  </div>
 </div>
 
 <div class="nav">
-  <a class="on"><span class="g">▦</span>Overzicht</a>
+  <a class="on" data-view="overzicht" onclick="showView('overzicht')"><span class="g">▦</span>Overzicht</a>
+  <a data-view="inkoop" onclick="showView('inkoop')"><span class="g">◆</span>Inkoop</a>
   <a><span class="g">◫</span>Orders</a>
   <a><span class="g">◈</span>Ads</a>
   <a><span class="g">⚙</span>Settings</a>
@@ -308,6 +372,7 @@ function onDate(){
 }
 
 function render(anim){
+  if(curView!=='overzicht') return;   // Inkoop-view heeft eigen render
   buildTabs();
   // datumkiezer alleen bij Custom
   const dr=document.getElementById('daterange');
@@ -481,6 +546,165 @@ function marginColor(m){
 }
 function marginHex(m){
   return m>20 ? 0x00ff88 : (m>=10 ? 0xff9500 : 0xff2d78);
+}
+
+// ---- Views: Overzicht / Inkoop ----
+let curView='overzicht';
+function showView(v){
+  curView=v;
+  const ov = v==='overzicht';
+  ['periods','storeTabs','content'].forEach(id=>{document.getElementById(id).style.display = ov?'':'none';});
+  if(!ov) document.getElementById('daterange').style.display='none';
+  document.getElementById('inkoop').style.display = v==='inkoop'?'block':'none';
+  document.querySelectorAll('.nav a[data-view]').forEach(a=>a.classList.toggle('on',a.dataset.view===v));
+  if(ov){ render(); }
+  else{
+    document.getElementById('storeTitle').textContent='Inkoop';
+    document.getElementById('dateLbl').textContent='Inkoopprijzen · Temu, 1688, AliExpress …';
+    renderInkoop();
+  }
+}
+function refreshView(){ if(curView==='inkoop') refreshAll(); else render(true); }
+
+// ---- Inkoop: productprijzen van leveranciers ophalen via /api/scrape ----
+const PROD_KEY='inkoop_products';
+let products=[];
+try{ products=JSON.parse(localStorage.getItem(PROD_KEY)||'[]'); if(!Array.isArray(products)) products=[]; }catch(e){ products=[]; }
+let scrapeLast=null;   // laatst opgehaald, nog niet opgeslagen product
+
+function saveProducts(){ try{ localStorage.setItem(PROD_KEY,JSON.stringify(products)); }catch(e){} }
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const safeUrl = u => (typeof u==='string' && /^https?:\/\//i.test(u)) ? u : '';
+const fmt2 = n => (+n).toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
+const eurFix = n => '€'+fmt2(n);
+function origPrice(p){
+  if(p.price==null) return '';
+  const sym={EUR:'€',USD:'$',GBP:'£',CNY:'¥',HKD:'HK$',JPY:'¥',AUD:'A$',CAD:'C$'}[p.currency]||(p.currency?p.currency+' ':'');
+  return sym+fmt2(p.price)+(p.priceMax?' – '+sym+fmt2(p.priceMax):'');
+}
+function setMsg(t,ok){ const m=document.getElementById('scrapeMsg'); m.textContent=t||''; m.className='scrape-msg'+(ok?' ok':''); }
+
+async function scrapeFetch(url){
+  const r=await fetch('/api/scrape?url='+encodeURIComponent(url));
+  const j=await r.json().catch(()=>null);
+  if(!j) throw new Error('server '+r.status);
+  return j;
+}
+async function scrapeProduct(){
+  const inp=document.getElementById('urlInput');
+  const url=inp.value.trim();
+  if(!url){ setMsg('Plak eerst een productlink'); inp.focus(); return; }
+  const btn=document.getElementById('scrapeBtn');
+  btn.disabled=true; btn.textContent='Bezig…'; setMsg('');
+  document.getElementById('scrapeResult').innerHTML='';
+  scrapeLast=null;
+  try{
+    const j=await scrapeFetch(url);
+    if(j.ok){
+      scrapeLast=j;
+      document.getElementById('scrapeResult').innerHTML=prodCard(j,-1);
+      setMsg('Gevonden op '+(j.siteName||'website'),true);
+    }else{
+      setMsg(j.error||'Ophalen mislukt');
+    }
+  }catch(e){ setMsg('Server niet bereikbaar: '+e.message); }
+  btn.disabled=false; btn.textContent='Ophalen';
+}
+function saveProduct(){
+  if(!scrapeLast) return;
+  const j=scrapeLast;
+  const p={url:j.url,site:j.site,siteName:j.siteName,title:j.title,image:j.image,price:j.price,
+           priceMax:j.priceMax,currency:j.currency,priceEur:j.priceEur,fetchedAt:j.fetchedAt,sell:null};
+  const i=products.findIndex(x=>x.url===p.url);
+  if(i>=0) products[i]={...products[i],...p,sell:products[i].sell};   // bestaand: prijs bijwerken
+  else products.unshift(p);
+  saveProducts();
+  scrapeLast=null;
+  document.getElementById('scrapeResult').innerHTML='';
+  document.getElementById('urlInput').value='';
+  setMsg('Opgeslagen',true);
+  renderInkoop();
+}
+function removeProduct(i){ products.splice(i,1); saveProducts(); renderInkoop(); }
+function setSell(i,v){
+  const n=parseFloat(String(v).replace(',','.'));
+  products[i].sell = n>0 ? n : null;
+  saveProducts(); renderInkoop();
+}
+// brutomarge per product: verkoopprijs vs. inkoopprijs (in euro)
+function margeInfo(p){
+  if(!(p.sell>0) || p.priceEur==null) return null;
+  const cogs=p.priceEur/p.sell*100;
+  return {cogs, marge:100-cogs};
+}
+function prodCard(p,i){
+  const img=safeUrl(p.image), url=safeUrl(p.url);
+  const d=p.fetchedAt?new Date(p.fetchedAt):null;
+  const when=d&&!isNaN(d)?d.toLocaleDateString('nl-NL',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}):'';
+  const eurTxt=p.priceEur!=null?eurFix(p.priceEur):(p.price!=null?origPrice(p):'?');
+  const showOrig=p.priceEur!=null && p.currency!=='EUR';
+  let calc='';
+  if(i>=0){
+    const m=margeInfo(p);
+    const mtxt=m?`${m.marge.toFixed(0)}% brutomarge · COGS ${m.cogs.toFixed(0)}%`:'vul verkoopprijs in';
+    const col=m?marginColor(m.marge):'var(--dim)';
+    calc=`<div class="prod-calc"><label>Verkoop €</label>
+      <input type="number" inputmode="decimal" step="0.01" min="0" value="${p.sell!=null?p.sell:''}" onchange="setSell(${i},this.value)">
+      <span class="prod-marge" style="color:${col}">${mtxt}</span></div>`;
+  }
+  return `<div class="prod">
+    ${img?`<img class="prod-img" src="${esc(img)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`:'<div class="prod-img"></div>'}
+    <div class="prod-body">
+      <div class="prod-meta">${esc(p.siteName||'website')}${when?' · '+esc(when):''}</div>
+      ${url?`<a class="prod-title" href="${esc(url)}" target="_blank" rel="noopener">${esc(p.title||url)}</a>`:`<div class="prod-title">${esc(p.title||'')}</div>`}
+      <div class="prod-price">Inkoop<b>${eurTxt}</b>${showOrig?`<span class="prod-orig">${esc(origPrice(p))}</span>`:''}</div>
+      ${calc}
+      ${i<0?`<div class="prod-actions"><button class="btn" onclick="saveProduct()">Opslaan in lijst</button></div>`:''}
+    </div>
+    ${i>=0?`<button class="x" onclick="removeProduct(${i})" aria-label="Verwijderen">✕</button>`:''}
+  </div>`;
+}
+function renderInkoop(){
+  const list=document.getElementById('prodList');
+  const btn=document.getElementById('refreshAllBtn');
+  if(!products.length){
+    list.innerHTML='<div class="empty">Nog geen producten.<br>Plak hierboven een link van Temu, 1688, AliExpress of een andere webshop.</div>';
+    btn.style.display='none';
+    return;
+  }
+  btn.style.display='';
+  const withSell=products.map(margeInfo).filter(Boolean);
+  let summary='';
+  if(withSell.length){
+    const avgCogs=withSell.reduce((a,m)=>a+m.cogs,0)/withSell.length;
+    const totalIn=products.reduce((a,p)=>a+(p.priceEur||0),0);
+    summary=`<div class="grid">
+      ${kpiColor('Gem. COGS',avgCogs.toFixed(0)+'%',marginColor(100-avgCogs),'van verkoopprijs · dashboard rekent 29%')}
+      ${kpi('Producten',products.length,'','neu-t','inkoop samen '+eurFix(totalIn))}
+    </div>`;
+  }
+  list.innerHTML=summary+products.map((p,i)=>prodCard(p,i)).join('');
+}
+// alle opgeslagen producten opnieuw ophalen (prijzen bijwerken)
+async function refreshAll(){
+  if(!products.length || refreshAll._busy) return;
+  refreshAll._busy=true;
+  const btn=document.getElementById('refreshAllBtn'); btn.disabled=true;
+  let ok=0, fail=0;
+  for(let i=0;i<products.length;i++){
+    setMsg(`Vernieuwen ${i+1}/${products.length}…`,true);
+    try{
+      const j=await scrapeFetch(products[i].url);
+      if(j.ok){
+        products[i]={...products[i],title:j.title||products[i].title,image:j.image||products[i].image,
+          price:j.price,priceMax:j.priceMax,currency:j.currency,priceEur:j.priceEur,fetchedAt:j.fetchedAt};
+        ok++;
+      }else fail++;
+    }catch(e){ fail++; }
+  }
+  saveProducts(); renderInkoop();
+  setMsg(fail?`${ok} bijgewerkt, ${fail} mislukt`:`${ok} producten bijgewerkt`, !fail);
+  btn.disabled=false; refreshAll._busy=false;
 }
 
 // dashboard wacht op inlog; focus op wachtwoordveld
